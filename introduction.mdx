@@ -1,0 +1,137 @@
+---
+title: Introduction
+description: VCVerifier is a SIOP-2/OIDC4VP compliant API service for verifying Verifiable Credentials and issuing JWTs
+---
+
+## What is VCVerifier?
+
+VCVerifier is a backend API service that provides SIOP-2 and OIDC4VP compliant endpoints for verifying Verifiable Credentials. It acts as a Relying Party in authentication flows, exchanging Verifiable Credentials for signed JWTs that can be used for authorization and authentication in downstream components.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get VCVerifier running in minutes with Docker
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/architecture">
+    Understand the system design and components
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference">
+    Explore the OpenAPI specification
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration">
+    Configure verification and trust settings
+  </Card>
+</CardGroup>
+
+## Why VCVerifier?
+
+Verifiable Credentials provide a mechanism to represent information in a tamper-evident and trustworthy way. The term "verifiable" refers to the characteristic of a credential being able to be verified by a third party (e.g., a verifier). Verification means it can be proven that the claims made in the credential are as they were provided by the issuer.
+
+These characteristics make Verifiable Credentials a good option for authentication and authorization, as a replacement for traditional credentials like username/password. The SIOP-2/OIDC4VP standards define flows to request and present such credentials as extensions to the well-established OpenID Connect protocol.
+
+VCVerifier provides the necessary endpoints required for a Relying Party (as defined in the SIOP-2 spec) to participate in these authentication flows.
+
+## Key features
+
+### Standards compliance
+
+VCVerifier implements the following standards:
+- **SIOP-2**: Self-Issued OpenID Provider version 2
+- **OIDC4VP**: OpenID Connect for Verifiable Presentations
+- **W3C Verifiable Credentials Data Model**: Full support for VC verification
+
+### Multiple authentication flows
+
+<CardGroup cols={2}>
+  <Card title="Cross-device flow" icon="mobile">
+    QR code-based authentication where credentials are held on a separate device (e.g., mobile wallet)
+  </Card>
+  <Card title="Same-device flow" icon="laptop">
+    Direct authentication when credentials are already present in the requesting browser
+  </Card>
+</CardGroup>
+
+### Comprehensive verification
+
+VCVerifier performs multiple layers of verification:
+
+<Steps>
+  <Step title="Credential validation">
+    Uses Trustbloc libraries to validate the credential structure and signatures
+  </Step>
+  <Step title="Trusted Participants Registry">
+    Verifies that credentials are registered in configured trusted-participants-registries
+  </Step>
+  <Step title="Trusted Issuers List">
+    Checks that the issuer is authorized to issue the credential with given claims
+  </Step>
+  <Step title="Gaia-X compliance" optional>
+    Validates Gaia-X compliant chains if provided
+  </Step>
+</Steps>
+
+### Trust anchor integration
+
+Supports multiple types of trust registries:
+- **EBSI Trusted Issuers Registry**: Compatible with the European Blockchain Services Infrastructure
+- **Gaia-X Registry**: Integration with Gaia-X Digital Clearing House Registry Services
+
+### Flexible request modes
+
+Supports three modes for requesting authentication:
+
+<Tabs>
+  <Tab title="URL Encoded">
+    Parameters passed directly in the URL:
+    ```
+    openid4vp://?response_type=vp_token&response_mode=direct_post&client_id=did:key:verifier...
+    ```
+  </Tab>
+  <Tab title="By Value">
+    Request object passed as a signed JWT value:
+    ```
+    openid4vp://?client_id=did:key:verifier&request=eyJhbGciOiJFUzI1NiI...
+    ```
+  </Tab>
+  <Tab title="By Reference">
+    Request object retrieved by reference (recommended for QR codes):
+    ```
+    openid4vp://?client_id=did:key:verifier&request_uri=https://verifier.org/api/v1/request/state
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+The "by reference" mode is recommended for QR code-based flows as it results in smaller QR codes.
+</Note>
+
+### JWT issuance
+
+After successful verification, VCVerifier:
+1. Creates a signed JWT containing the verified credential as a claim
+2. Provides a standard OAuth2 token endpoint for JWT retrieval
+3. Exposes a JWKS endpoint for downstream services to verify JWTs
+
+## Use cases
+
+VCVerifier is ideal for:
+
+- **Identity verification**: Verify user identity using Verifiable Credentials instead of passwords
+- **Access control**: Issue JWTs based on verified credentials for downstream authorization
+- **Compliance workflows**: Ensure credential issuers are trusted and authorized
+- **Decentralized identity**: Participate in SSI (Self-Sovereign Identity) ecosystems
+- **Gaia-X compliance**: Verify participants in Gaia-X data spaces
+
+## Technology stack
+
+VCVerifier is built with:
+- **Go**: High-performance backend implementation
+- **Gin**: HTTP web framework
+- **Trustbloc vc-go**: Verifiable Credentials verification library
+- **JWX**: JWT signing and verification
+- **QR code generation**: For cross-device authentication flows
+
+## License
+
+VCVerifier is licensed under the Apache License, Version 2.0.
+
+© 2023 FIWARE Foundation e.V.

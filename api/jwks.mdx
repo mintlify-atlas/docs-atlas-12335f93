@@ -1,0 +1,223 @@
+---
+title: JWKS Endpoint
+description: Retrieve public keys for JWT verification
+---
+
+The JWKS (JSON Web Key Set) endpoint provides the public keys used by the VCVerifier to sign JWTs. These keys are essential for verifying the authenticity of tokens issued by the verifier.
+
+## Endpoint
+
+```
+GET /.well-known/jwks
+```
+
+## Overview
+
+This endpoint returns a JSON Web Key Set (JWKS) containing one or more public keys that can be used to verify JWTs signed by the VCVerifier. The endpoint follows the standard JWKS format as defined in [RFC 7517](https://tools.ietf.org/html/rfc7517).
+
+<Note>
+The JWKS endpoint is publicly accessible and does not require authentication. It's designed to be used by clients that need to verify tokens issued by this verifier.
+</Note>
+
+## Response
+
+The endpoint returns a JWKS object containing an array of public keys.
+
+### Response Schema
+
+<ResponseField name="keys" type="array" required>
+  An array of JSON Web Key objects
+  
+  <ResponseField name="kid" type="string">
+    Key ID - A unique identifier for the key
+    
+    **Example:** `179d7b56-6598-4045-9a32-4635e8b0f605`
+  </ResponseField>
+  
+  <ResponseField name="kty" type="string">
+    Key Type - The cryptographic algorithm family used with the key
+    
+    **Supported values:** `EC` (Elliptic Curve), `RSA`
+    
+    **Example:** `EC`
+  </ResponseField>
+  
+  <ResponseField name="use" type="string">
+    Public Key Use - Identifies the intended use of the public key
+    
+    **Typical value:** `sig` (signature)
+  </ResponseField>
+  
+  <ResponseField name="alg" type="string">
+    Algorithm - The algorithm intended for use with the key
+    
+    **Example:** `ES256` (ECDSA using P-256 and SHA-256)
+  </ResponseField>
+  
+  <ResponseField name="crv" type="string">
+    Curve - The elliptic curve used with the key (for EC keys)
+    
+    **Example:** `P-256`
+  </ResponseField>
+  
+  <ResponseField name="x" type="string">
+    X Coordinate - The x coordinate for the Elliptic Curve point (for EC keys)
+    
+    **Example:** `3ctHY_0KJW5ezT-oF39t3wPX6XlggWKOSPFW8iooBXk`
+  </ResponseField>
+  
+  <ResponseField name="y" type="string">
+    Y Coordinate - The y coordinate for the Elliptic Curve point (for EC keys)
+    
+    **Example:** `HXA4mBHgObIE56E92yxN5bYQ27wSxlVPfuNWaY06TTI`
+  </ResponseField>
+  
+  <ResponseField name="n" type="string">
+    Modulus - The modulus value for RSA keys
+  </ResponseField>
+  
+  <ResponseField name="e" type="string">
+    Exponent - The exponent value for RSA keys
+  </ResponseField>
+  
+  <ResponseField name="d" type="string">
+    Private Key Component - Not included in JWKS responses (private key parameter)
+  </ResponseField>
+</ResponseField>
+
+## Response Example
+
+<CodeGroup>
+
+```json EC Key Example
+{
+  "keys": [
+    {
+      "kid": "179d7b56-6598-4045-9a32-4635e8b0f605",
+      "kty": "EC",
+      "use": "sig",
+      "alg": "ES256",
+      "crv": "P-256",
+      "x": "3ctHY_0KJW5ezT-oF39t3wPX6XlggWKOSPFW8iooBXk",
+      "y": "HXA4mBHgObIE56E92yxN5bYQ27wSxlVPfuNWaY06TTI"
+    }
+  ]
+}
+```
+
+```json Multiple Keys Example
+{
+  "keys": [
+    {
+      "kid": "key-1",
+      "kty": "EC",
+      "use": "sig",
+      "alg": "ES256",
+      "crv": "P-256",
+      "x": "3ctHY_0KJW5ezT-oF39t3wPX6XlggWKOSPFW8iooBXk",
+      "y": "HXA4mBHgObIE56E92yxN5bYQ27wSxlVPfuNWaY06TTI"
+    },
+    {
+      "kid": "key-2",
+      "kty": "EC",
+      "use": "sig",
+      "alg": "ES256",
+      "crv": "P-256",
+      "x": "WKn-ZIGevcwGIyyrzFoZNBdaq9_TsqzGl96oc0CWuis",
+      "y": "y77t-RvAHRKTsSGdIYUfweuOvwrvDD-Q3Hv5J0fSKbE"
+    }
+  ]
+}
+```
+
+```bash cURL Request
+curl -X GET https://verifier.example.com/.well-known/jwks
+```
+
+</CodeGroup>
+
+## Key Types
+
+The VCVerifier supports the following key types:
+
+### Elliptic Curve (EC) Keys
+
+EC keys are the primary key type used by the verifier:
+
+- **Algorithm:** ES256 (ECDSA using P-256 curve and SHA-256)
+- **Curve:** P-256 (also known as secp256r1)
+- **Key Components:** `x` and `y` coordinates
+
+<Note>
+Elliptic Curve keys provide strong security with smaller key sizes compared to RSA, making them efficient for JWT signing operations.
+</Note>
+
+### RSA Keys
+
+RSA keys are also supported:
+
+- **Key Components:** Modulus (`n`) and public exponent (`e`)
+- **Common algorithms:** RS256, RS384, RS512
+
+## Usage
+
+Clients should fetch the JWKS periodically or cache it with appropriate cache headers. When verifying a JWT:
+
+1. Extract the `kid` (Key ID) from the JWT header
+2. Find the matching key in the JWKS by comparing the `kid` values
+3. Use the public key parameters to verify the JWT signature
+4. Ensure the `alg` in the JWT header matches the key's algorithm
+
+<CodeGroup>
+
+```javascript JavaScript Example
+const response = await fetch('https://verifier.example.com/.well-known/jwks');
+const jwks = await response.json();
+
+// Find key by kid
+const key = jwks.keys.find(k => k.kid === tokenHeader.kid);
+
+// Verify JWT using the key
+// (implementation depends on your JWT library)
+```
+
+```python Python Example
+import requests
+import jwt
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+
+# Fetch JWKS
+response = requests.get('https://verifier.example.com/.well-known/jwks')
+jwks = response.json()
+
+# Get the key by kid
+key = next(k for k in jwks['keys'] if k['kid'] == token_header['kid'])
+
+# Verify the token
+# (implementation depends on your JWT library)
+```
+
+```go Go Example
+import (
+    "encoding/json"
+    "net/http"
+    "github.com/lestrrat-go/jwx/v3/jwk"
+    "github.com/lestrrat-go/jwx/v3/jwt"
+)
+
+// Fetch JWKS
+resp, _ := http.Get("https://verifier.example.com/.well-known/jwks")
+var jwks jwk.Set
+json.NewDecoder(resp.Body).Decode(&jwks)
+
+// Find and use the key for verification
+key, _ := jwks.LookupKeyID(tokenKid)
+```
+
+</CodeGroup>
+
+## Related Endpoints
+
+- [OpenID Configuration](/api/openid-configuration) - Discover OpenID Provider metadata including the JWKS URI
+- [Token Endpoint](/api/token) - Exchange authorization codes for access tokens

@@ -1,0 +1,516 @@
+---
+title: Same-Device Flow
+description: Implement same-device authentication where credentials are held on the requesting device
+---
+
+## Overview
+
+The same-device flow enables authentication when the user's Verifiable Credential wallet is on the same device as the application requesting authentication. This is ideal for mobile applications or scenarios where the wallet is browser-based.
+
+Instead of displaying a QR code, the verifier creates a deep link that directly opens the user's wallet application on the same device.
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Mobile Apps" icon="mobile">
+    Native mobile applications where the wallet app is installed on the same phone
+  </Card>
+  
+  <Card title="Browser Wallets" icon="browser">
+    Browser extensions or web-based wallets on desktop
+  </Card>
+  
+  <Card title="Progressive Web Apps" icon="window">
+    PWAs that can communicate with wallet applications
+  </Card>
+  
+  <Card title="Desktop Applications" icon="desktop">
+    Desktop apps with locally installed credential wallets
+  </Card>
+</CardGroup>
+
+## How It Works
+
+<Steps>
+  <Step title="Initiate Authentication">
+    Application calls the `/api/v1/samedevice` endpoint with a unique state parameter
+  </Step>
+  
+  <Step title="Receive Redirect">
+    VCVerifier responds with a 302 redirect containing the authentication parameters
+  </Step>
+  
+  <Step title="Open Wallet">
+    The redirect location uses a deep link (e.g., `openid4vp://`) that opens the wallet application
+  </Step>
+  
+  <Step title="User Approves">
+    User reviews and approves the credential presentation in their wallet
+  </Step>
+  
+  <Step title="Wallet Responds">
+    Wallet posts the credential to the `/api/v1/authentication_response` endpoint
+  </Step>
+  
+  <Step title="Retrieve Token">
+    Application exchanges the authorization code for a JWT via the `/token` endpoint
+  </Step>
+</Steps>
+
+## Implementation
+
+### Step 1: Start the Same-Device Flow
+
+Call the samedevice endpoint to initiate authentication:
+
+<CodeGroup>
+
+```bash cURL
+curl -X 'GET' \
+  'http://localhost:8080/api/v1/samedevice?state=274e7465-cc9d-4cad-b75f-190db927e56a'
+```
+
+```javascript JavaScript
+async function startSameDeviceAuth() {
+  const state = crypto.randomUUID();
+  
+  const response = await fetch(
+    `https://verifier.example.com/api/v1/samedevice?state=${state}`,
+    {
+      redirect: 'manual' // Don't auto-follow redirects
+    }
+  );
+  
+  if (response.status === 302) {
+    const redirectUrl = response.headers.get('location');
+    // Open wallet with redirect URL
+    window.location.href = redirectUrl;
+  }
+}
+```
+
+```python Python
+import requests
+import uuid
+
+def start_same_device_auth():
+    state = str(uuid.uuid4())
+    
+    response = requests.get(
+        f'https://verifier.example.com/api/v1/samedevice',
+        params={'state': state},
+        allow_redirects=False
+    )
+    
+    if response.status_code == 302:
+        redirect_url = response.headers['Location']
+        # Open wallet with redirect URL
+        return redirect_url
+```
+
+```swift Swift (iOS)
+func startSameDeviceAuth() {
+    let state = UUID().uuidString
+    let urlString = "https://verifier.example.com/api/v1/samedevice?state=\(state)"
+    
+    guard let url = URL(string: urlString) else { return }
+    
+    URLSession.shared.dataTask(with: url) { _, response, _ in
+        if let httpResponse = response as? HTTPURLResponse,
+           httpResponse.statusCode == 302,
+           let location = httpResponse.value(forHTTPHeaderField: "Location"),
+           let walletURL = URL(string: location) {
+            
+            DispatchQueue.main.async {
+                // Open wallet app
+                UIApplication.shared.open(walletURL)
+            }
+        }
+    }.resume()
+}
+```
+
+</CodeGroup>
+
+### Step 2: Handle the Redirect
+
+The response contains a 302 redirect with the authentication request:
+
+```http
+HTTP/1.1 302 Found
+Location: http://localhost:8080/?response_type=vp_token&response_mode=direct_post&client_id=did:key:z6MkigCEnopwujz8Ten2dzq91nvMjqbKQYcifuZhqBsEkH7g&redirect_uri=http://verifier-one.batterypass.fiware.dev/api/v1/authentication_response&state=OUBlw8wlCZZOcTwRN2wURA&nonce=wqtpm60Jwx1sYWITRRZwBw
+```
+
+The location header contains all necessary parameters for the SIOP-2/OIDC4VP flow:
+
+<ParamField path="response_type" type="string">
+  Set to `vp_token` to request a Verifiable Presentation
+</ParamField>
+
+<ParamField path="response_mode" type="string">
+  Set to `direct_post` - wallet will POST the response directly to the verifier
+</ParamField>
+
+<ParamField path="client_id" type="string">
+  The DID of the verifier acting as the client
+</ParamField>
+
+<ParamField path="redirect_uri" type="string">
+  The endpoint where the wallet should POST the authentication response
+</ParamField>
+
+<ParamField path="state" type="string">
+  Unique session identifier
+</ParamField>
+
+<ParamField path="nonce" type="string">
+  Random value to prevent replay attacks
+</ParamField>
+
+### Step 3: Submit Authentication Response
+
+The wallet posts the Verifiable Presentation to the authentication_response endpoint:
+
+<CodeGroup>
+
+```bash cURL
+curl -X 'POST' \
+  'https://localhost:8080/api/v1/authentication_response?state=OUBlw8wlCZZOcTwRN2wURA' \
+  -H 'accept: */*' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d 'presentation_submission=ewogICJpZCI6ICJzdHJpbmciLAogICJkZWZpbml0aW9uX2lkIjogIjMyZjU0MTYzLTcxNjYtNDhmMS05M2Q4LWZmMjE3YmRiMDY1MyIsCiAgImRlc2NyaXB0b3JfbWFwIjogWwogICAgewogICAgICAiaWQiOiAiaWRfY3JlZGVudGlhbCIsCiAgICAgICJmb3JtYXQiOiAibGRwX3ZjIiwKICAgICAgInBhdGgiOiAiJCIsCiAgICAgICJwYXRoX25lc3RlZCI6ICJzdHJpbmciCiAgICB9CiAgXQp9&vp_token=ewogICJAY29udGV4dCI6IFsKICAgICJodHRwczovL3d3dy53My5vcmcvMjAxOC9jcmVkZW50aWFscy92MSIKICBdLAogICJ0eXBlIjogWwogICAgIlZlcmlmaWFibGVQcmVzZW50YXRpb24iCiAgXSwKICAidmVyaWZpYWJsZUNyZWRlbnRpYWwiOiBbCiAgICB7CiAgICAgICJ0eXBlcyI6IFsKICAgICAgICAiUGFja2V0RGVsaXZlcnlTZXJ2aWNlIiwKICAgICAgICAiVmVyaWZpYWJsZUNyZWRlbnRpYWwiCiAgICAgIF0sCiAgICAgICJAY29udGV4dCI6IFsKICAgICAgICAiaHR0cHM6Ly93d3cudzMub3JnLzIwMTgvY3JlZGVudGlhbHMvdjEiLAogICAgICAgICJodHRwczovL3czaWQub3JnL3NlY3VyaXR5L3N1aXRlcy9qd3MtMjAyMC92MSIKICAgICAgXSwKICAgICAgImNyZWRlbnRpYWxzU3ViamVjdCI6IHt9LAogICAgICAiYWRkaXRpb25hbFByb3AxIjoge30KICAgIH0KICBdLAogICJpZCI6ICJlYmM2ZjFjMiIsCiAgImhvbGRlciI6IHsKICAgICJpZCI6ICJkaWQ6a2V5Ono2TWtzOW05aWZMd3kzSldxSDRjNTdFYkJRVlMyU3BSQ2pmYTc5d0hiNXZXTTZ2aCIKICB9LAogICJwcm9vZiI6IHsKICAgICJ0eXBlIjogIkpzb25XZWJTaWduYXR1cmUyMDIwIiwKICAgICJjcmVhdG9yIjogImRpZDprZXk6ejZNa3M5bTlpZkx3eTNKV3FINGM1N0ViQlFWUzJTcFJDamZhNzl3SGI1dldNNnZoIiwKICAgICJjcmVhdGVkIjogIjIwMjMtMDEtMDZUMDc6NTE6MzZaIiwKICAgICJ2ZXJpZmljYXRpb25NZXRob2QiOiAiZGlkOmtleTp6Nk1rczltOWlmTHd5M0pXcUg0YzU3RWJCUVZTMlNwUkNqZmE3OXdIYjV2V002dmgjejZNa3M5bTlpZkx3eTNKV3FINGM1N0ViQlFWUzJTcFJDamZhNzl3SGI1dldNNnZoIiwKICAgICJqd3MiOiAiZXlKaU5qUWlPbVpoYkhObExDSmpjbWwwSWpwYkltSTJOQ0pkTENKaGJHY2lPaUpGWkVSVFFTSjkuLjZ4U3FvWmphME53akYwYWY5WmtucXgzQ2JoOUdFTnVuQmY5Qzh1TDJ1bEdmd3VzM1VGTV9abmhQald0SFBsLTcyRTlwM0JUNWYycHRab1lrdE1LcERBIgogIH0KfQ'
+```
+
+```javascript JavaScript
+async function submitAuthResponse(state, vpToken, presentationSubmission) {
+  // Encode to Base64 URL-safe format
+  const encodedVpToken = btoa(JSON.stringify(vpToken))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '');
+    
+  const encodedSubmission = btoa(JSON.stringify(presentationSubmission))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '');
+  
+  const params = new URLSearchParams({
+    presentation_submission: encodedSubmission,
+    vp_token: encodedVpToken
+  });
+  
+  const response = await fetch(
+    `https://verifier.example.com/api/v1/authentication_response?state=${state}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: params,
+      redirect: 'manual'
+    }
+  );
+  
+  if (response.status === 302) {
+    const redirectUrl = response.headers.get('location');
+    return redirectUrl; // Contains state and code
+  }
+}
+```
+
+</CodeGroup>
+
+<Warning>
+  The `vp_token` and `presentation_submission` must use **Base64 URL-safe encoding**, not standard Base64. Replace `+` with `-`, `/` with `_`, and remove `=` padding.
+</Warning>
+
+### Step 4: Get Authorization Code
+
+After successful verification, VCVerifier redirects with the authorization code:
+
+```http
+HTTP/1.1 302 Found
+Location: http://localhost:8080/?state=274e7465-cc9d-4cad-b75f-190db927e56a&code=IwMTgvY3JlZGVudGlhbHMv
+```
+
+### Step 5: Exchange Code for JWT
+
+Finally, exchange the authorization code for the JWT token:
+
+<CodeGroup>
+
+```bash cURL
+curl -X 'POST' \
+  'https://localhost:8080/token' \
+  -H 'accept: application/json' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d 'grant_type=authorization_code&code=IwMTgvY3JlZGVudGlhbHMv&redirect_uri=https%3A%2F%2Flocalhost%3A8080%2F'
+```
+
+```javascript JavaScript
+async function exchangeCodeForToken(code) {
+  const params = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code: code,
+    redirect_uri: 'https://localhost:8080/'
+  });
+  
+  const response = await fetch('https://verifier.example.com/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Accept': 'application/json'
+    },
+    body: params
+  });
+  
+  const data = await response.json();
+  return data.access_token;
+}
+```
+
+</CodeGroup>
+
+**Response:**
+
+```json
+{
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "access_token": "eyJhbGciOiJFUzI1NiIsImtpZCI6IldPSEZ1NEhaNTlTTTg1M0M3ZU4wT3ZsS0dyTWVlckRDcEhPVVJvVFF3SHciLCJ0eXAiOiJKV1QifQ..."
+}
+```
+
+## Configuration Options
+
+### Query Parameters
+
+<ParamField path="state" type="string" required>
+  Unique identifier for the authentication session
+</ParamField>
+
+<ParamField path="client_id" type="string">
+  Service identifier for retrieving specific configurations
+</ParamField>
+
+<ParamField path="scope" type="string">
+  Credential scope to request (e.g., "PacketDeliveryService")
+</ParamField>
+
+<ParamField path="request_mode" type="string">
+  Request encoding mode: `urlEncoded`, `byValue`, or `byReference`
+</ParamField>
+
+<ParamField path="redirect_path" type="string">
+  Alternative redirect path. If not provided, an `oid4vp` deep link is returned
+</ParamField>
+
+## Complete Mobile Example (React Native)
+
+Here's a complete React Native example implementing the same-device flow:
+
+```jsx
+import React, { useState, useEffect } from 'react';
+import { View, Button, Linking, Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+function SameDeviceAuth() {
+  const [authState, setAuthState] = useState(null);
+  const VERIFIER_URL = 'https://verifier.example.com';
+  
+  useEffect(() => {
+    // Handle deep link when returning from wallet
+    const handleDeepLink = async (event) => {
+      const url = event.url;
+      const params = new URLSearchParams(url.split('?')[1]);
+      const code = params.get('code');
+      const state = params.get('state');
+      
+      if (code && state === authState) {
+        await exchangeCodeForToken(code);
+      }
+    };
+    
+    // Listen for deep links
+    const subscription = Linking.addEventListener('url', handleDeepLink);
+    
+    return () => subscription.remove();
+  }, [authState]);
+  
+  const startAuthentication = async () => {
+    try {
+      // Generate unique state
+      const state = generateUUID();
+      setAuthState(state);
+      await AsyncStorage.setItem('auth_state', state);
+      
+      // Call samedevice endpoint
+      const response = await fetch(
+        `${VERIFIER_URL}/api/v1/samedevice?state=${state}`,
+        { redirect: 'manual' }
+      );
+      
+      // Get redirect location
+      const redirectUrl = response.headers.get('location');
+      
+      // Open wallet app
+      const canOpen = await Linking.canOpenURL(redirectUrl);
+      if (canOpen) {
+        await Linking.openURL(redirectUrl);
+      } else {
+        Alert.alert('Error', 'Cannot open wallet app');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to start authentication');
+    }
+  };
+  
+  const exchangeCodeForToken = async (code) => {
+    try {
+      const params = new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: code,
+        redirect_uri: 'myapp://auth/callback'
+      });
+      
+      const response = await fetch(`${VERIFIER_URL}/token`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: params.toString()
+      });
+      
+      const data = await response.json();
+      
+      // Store token
+      await AsyncStorage.setItem('access_token', data.access_token);
+      await AsyncStorage.removeItem('auth_state');
+      
+      Alert.alert('Success', 'Authentication successful!');
+      
+      // Navigate to home screen
+      // navigation.navigate('Home');
+    } catch (error) {
+      Alert.alert('Error', 'Token exchange failed');
+    }
+  };
+  
+  const generateUUID = () => {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  };
+  
+  return (
+    <View style={{ padding: 20 }}>
+      <Button 
+        title="Login with Wallet" 
+        onPress={startAuthentication}
+      />
+    </View>
+  );
+}
+
+export default SameDeviceAuth;
+```
+
+## Deep Link Configuration
+
+For mobile applications, configure deep link handling:
+
+<Tabs>
+  <Tab title="iOS (Info.plist)">
+    ```xml
+    <key>CFBundleURLTypes</key>
+    <array>
+      <dict>
+        <key>CFBundleURLSchemes</key>
+        <array>
+          <string>myapp</string>
+          <string>openid4vp</string>
+        </array>
+      </dict>
+    </array>
+    ```
+  </Tab>
+  
+  <Tab title="Android (AndroidManifest.xml)">
+    ```xml
+    <intent-filter>
+      <action android:name="android.intent.action.VIEW" />
+      <category android:name="android.intent.category.DEFAULT" />
+      <category android:name="android.intent.category.BROWSABLE" />
+      <data android:scheme="myapp" android:host="auth" />
+      <data android:scheme="openid4vp" />
+    </intent-filter>
+    ```
+  </Tab>
+</Tabs>
+
+## Comparison: Same-Device vs Cross-Device
+
+<Note>
+  **When to use same-device:**
+  - Mobile app with wallet on same device
+  - Browser wallet extensions
+  - Streamlined mobile user experience
+  
+  **When to use cross-device:**
+  - Desktop application with mobile wallet
+  - Better security separation
+  - User prefers mobile wallet for authentication
+</Note>
+
+## Troubleshooting
+
+### Wallet Not Opening
+
+**Issue:** The deep link doesn't open the wallet application.
+
+**Solutions:**
+- Verify the wallet app is installed
+- Check deep link scheme is registered
+- Test with `openid4vp://` scheme
+- Fall back to QR code if deep link fails
+
+### Redirect Loop
+
+**Issue:** Application keeps redirecting without completing authentication.
+
+**Solutions:**
+- Ensure state parameter is properly tracked
+- Check redirect_uri matches your app's scheme
+- Verify callback handling is implemented correctly
+
+### Base64 Encoding Errors
+
+**Issue:** Authentication fails with encoding errors.
+
+**Solutions:**
+- Use Base64 URL-safe encoding (not standard Base64)
+- Replace `+` with `-`, `/` with `_`
+- Remove `=` padding characters
+- Test with online URL-safe Base64 encoder
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Cross-Device Flow" icon="qrcode" href="/integration/cross-device">
+    Learn about QR code authentication for cross-device scenarios
+  </Card>
+  
+  <Card title="Request Modes" icon="gear" href="/integration/request-modes">
+    Understand different request encoding modes
+  </Card>
+  
+  <Card title="API Reference" icon="book" href="/api-reference/endpoint/samedevice">
+    View detailed API specifications
+  </Card>
+  
+  <Card title="Frontend Integration" icon="window" href="/integration/frontend">
+    Complete frontend integration guide
+  </Card>
+</CardGroup>

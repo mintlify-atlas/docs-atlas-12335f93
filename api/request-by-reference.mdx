@@ -1,0 +1,443 @@
+---
+title: 'Request by Reference'
+description: 'Retrieve signed authorization request objects by reference'
+---
+
+The request by reference endpoint allows wallets to retrieve signed JWT authorization request objects. This is part of the "byReference" request mode as specified in [RFC 9101](https://www.rfc-editor.org/rfc/rfc9101.html) and [OpenID4VP](https://openid.net/specs/openid-4-verifiable-presentations-1_0.html#section-5).
+
+## Overview
+
+Instead of passing all authorization parameters directly in the URL (which can create very large QR codes), the verifier can provide a reference URI. The wallet then retrieves the full request object from this endpoint.
+
+### Request Modes
+
+The VCVerifier supports three modes for requesting authentication:
+
+1. **urlEncoded** - Parameters passed directly in URL
+2. **byValue** - Signed JWT passed as value in URL
+3. **byReference** - Reference URI provided, request retrieved via this endpoint (recommended)
+
+<Note>
+  **Recommended Mode:** "byReference" is recommended because request objects can become large, especially with complex presentation definitions. This mode keeps QR codes small and manageable.
+</Note>
+
+---
+
+## GET /api/v1/request/{id}
+
+Retrieve a JWT-encoded request object by its reference ID.
+
+### Request
+
+<ParamField path="id" type="string" required>
+  The unique identifier for the request object. This is typically provided in the `request_uri` parameter during the authentication flow initialization.
+  
+  **Format:** UUID or URN
+  
+  **Example:** `urn:uuid:274e7465-cc9d-4cad-b75f-190db927e56a`
+</ParamField>
+
+### Response
+
+**Content-Type:** `text/html` (note: despite the content type, the response is a JWT string)
+
+**Body:** JWT-encoded signed request object
+
+**Status Codes:**
+- `200` - Request object retrieved successfully
+- `400` - Invalid request ID or request not found
+
+---
+
+## Example Flow
+
+### Step 1: Initial Authorization Request
+
+The authentication flow starts with a connection string containing a `request_uri`:
+
+```text
+openid4vp://?client_id=did:key:z6MkigCEnopwujz8Ten2dzq91nvMjqbKQYcifuZhqBsEkH7g&request_uri=https://verifier.example.org/api/v1/request/urn:uuid:274e7465-cc9d-4cad-b75f-190db927e56a&request_uri_method=get
+```
+
+**Parameters:**
+- `client_id` - The DID of the verifier
+- `request_uri` - URL to retrieve the full request object
+- `request_uri_method` - HTTP method to use (always `get`)
+
+### Step 2: Retrieve Request Object
+
+The wallet makes a GET request to the `request_uri`:
+
+<CodeGroup>
+```bash cURL
+curl -X 'GET' \
+  'https://verifier.example.org/api/v1/request/urn:uuid:274e7465-cc9d-4cad-b75f-190db927e56a'
+```
+
+```javascript JavaScript
+const requestUri = 'https://verifier.example.org/api/v1/request/urn:uuid:274e7465-cc9d-4cad-b75f-190db927e56a';
+
+const response = await fetch(requestUri);
+const requestObject = await response.text();
+
+// Decode the JWT to inspect the request
+const [header, payload, signature] = requestObject.split('.');
+const decodedPayload = JSON.parse(atob(payload));
+console.log(decodedPayload);
+```
+
+```python Python
+import requests
+import json
+import base64
+
+request_uri = 'https://verifier.example.org/api/v1/request/urn:uuid:274e7465-cc9d-4cad-b75f-190db927e56a'
+
+response = requests.get(request_uri)
+request_object = response.text
+
+# Decode the JWT
+header, payload, signature = request_object.split('.')
+# Add padding if needed
+payload += '=' * (4 - len(payload) % 4)
+decoded = json.loads(base64.urlsafe_b64decode(payload))
+print(json.dumps(decoded, indent=2))
+```
+</CodeGroup>
+
+**Response:**
+
+```text
+eyJhbGciOiJFUzI1NiIsInR5cCI6Im9hdXRoLWF1dGh6LXJlcStqd3QifQ.eyJjbGllbnRfaWQiOiJkaWQ6a2V5OnZlcmlmaWVyIiwiZXhwIjozMCwiaXNzIjoiZGlkOmtleTp2ZXJpZmllciIsIm5vbmNlIjoicmFuZG9tTm9uY2UiLCJwcmVzZW50YXRpb25fZGVmaW5pdGlvbiI6eyJpZCI6Im15LXByZXNlbnRhdGlvbiIsImlucHV0X2Rlc2NyaXB0b3JzIjpbeyJpZCI6Im15LWRlc2NyaXB0b3IiLCJjb25zdHJhaW50cyI6eyJmaWVsZHMiOlt7ImlkIjoibXktZmllbGQiLCJwYXRoIjpbIiQudmN0Il0sImZpbHRlciI6eyJjb25zdCI6IkN1c3RvbWVyQ3JlZGVudGlhbCJ9fV19LCJmb3JtYXQiOnsic2Qrand0LXZjIjp7ImFsZyI6IkVTMjU2In19fV0sImZvcm1hdCI6bnVsbH0sInJlZGlyZWN0X3VyaSI6Imh0dHBzOi8vdmVyaWZpZXIuZXhhbXBsZS5vcmcvYXBpL3YxL2F1dGhlbnRpY2F0aW9uX3Jlc3BvbnNlIiwicmVzcG9uc2VfdHlwZSI6InZwX3Rva2VuIiwicmVzcG9uc2VfbW9kZSI6ImRpcmVjdF9wb3N0Iiwic2NvcGUiOiJvcGVuaWQiLCJzdGF0ZSI6InJhbmRvbVN0YXRlIn0.signature
+```
+
+---
+
+## Request Object Structure
+
+The retrieved JWT contains the full authorization request parameters.
+
+### JWT Header
+
+```json
+{
+  "alg": "ES256",
+  "typ": "oauth-authz-req+jwt"
+}
+```
+
+<ResponseField name="alg" type="string">
+  The signing algorithm used to sign the request object. Configured via `requestKeyAlgorithm` in the verifier settings.
+  
+  **Example:** `ES256`, `RS256`
+</ResponseField>
+
+<ResponseField name="typ" type="string">
+  Media type of the JWT. Always `oauth-authz-req+jwt` for request objects per [RFC 9101](https://www.rfc-editor.org/rfc/rfc9101.html).
+</ResponseField>
+
+### JWT Payload
+
+```json
+{
+  "client_id": "did:key:z6MkigCEnopwujz8Ten2dzq91nvMjqbKQYcifuZhqBsEkH7g",
+  "iss": "did:key:z6MkigCEnopwujz8Ten2dzq91nvMjqbKQYcifuZhqBsEkH7g",
+  "exp": 30,
+  "nonce": "BfEte4DFdlmdO7a_fBiXTw",
+  "state": "274e7465-cc9d-4cad-b75f-190db927e56a",
+  "response_type": "vp_token",
+  "response_mode": "direct_post",
+  "redirect_uri": "https://verifier.example.org/api/v1/authentication_response",
+  "scope": "openid",
+  "presentation_definition": {
+    "id": "my-presentation",
+    "input_descriptors": [
+      {
+        "id": "my-descriptor",
+        "constraints": {
+          "fields": [
+            {
+              "id": "my-field",
+              "path": ["$.vct"],
+              "filter": {
+                "const": "CustomerCredential"
+              }
+            }
+          ]
+        },
+        "format": {
+          "sd+jwt-vc": {
+            "alg": "ES256"
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+### Request Object Fields
+
+<ResponseField name="client_id" type="string" required>
+  The identifier of the verifier. Can be a DID or other identifier type (e.g., `x509_san_dns`).
+  
+  **Example:** `did:key:z6MkigCEnopwujz8Ten2dzq91nvMjqbKQYcifuZhqBsEkH7g`
+</ResponseField>
+
+<ResponseField name="iss" type="string" required>
+  The issuer of the request object. Typically matches `client_id`.
+</ResponseField>
+
+<ResponseField name="exp" type="number" required>
+  Expiration time of the request object in seconds from issuance. Configured via `sessionExpiry` setting.
+  
+  **Default:** `30` seconds
+</ResponseField>
+
+<ResponseField name="nonce" type="string" required>
+  Random value to prevent replay attacks. Generated uniquely for each authentication session.
+  
+  **Example:** `BfEte4DFdlmdO7a_fBiXTw`
+</ResponseField>
+
+<ResponseField name="state" type="string" required>
+  Session identifier used to correlate the response with this request.
+  
+  **Format:** UUID
+  
+  **Example:** `274e7465-cc9d-4cad-b75f-190db927e56a`
+</ResponseField>
+
+<ResponseField name="response_type" type="string" required>
+  The type of response expected. Always `vp_token` for OIDC4VP flows.
+</ResponseField>
+
+<ResponseField name="response_mode" type="string" required>
+  How the response should be returned. Typically `direct_post` for OIDC4VP.
+</ResponseField>
+
+<ResponseField name="redirect_uri" type="string" required>
+  The URI where the wallet should submit the authentication response.
+  
+  **Example:** `https://verifier.example.org/api/v1/authentication_response`
+</ResponseField>
+
+<ResponseField name="scope" type="string">
+  The requested scope. Configured based on the service/client configuration.
+  
+  **Example:** `openid`, `dsba.credentials.presentation.PacketDeliveryService`
+</ResponseField>
+
+<ResponseField name="presentation_definition" type="object" required>
+  The [DIF Presentation Exchange](https://identity.foundation/presentation-exchange/) definition specifying what credentials are requested.
+  
+  See detailed structure below.
+</ResponseField>
+
+### Presentation Definition Structure
+
+<ResponseField name="id" type="string" required>
+  Unique identifier for this presentation definition.
+  
+  **Example:** `my-presentation`
+</ResponseField>
+
+<ResponseField name="input_descriptors" type="array" required>
+  Array of descriptors defining the required credentials.
+  
+  <ResponseField name="id" type="string" required>
+    Unique identifier for this input descriptor.
+    
+    **Example:** `my-descriptor`
+  </ResponseField>
+  
+  <ResponseField name="constraints" type="object" required>
+    Constraints that the submitted credentials must satisfy.
+    
+    <ResponseField name="fields" type="array" required>
+      Array of field constraints.
+      
+      <ResponseField name="id" type="string">
+        Field identifier.
+      </ResponseField>
+      
+      <ResponseField name="path" type="array" required>
+        JSONPath expressions to locate the field in the credential.
+        
+        **Example:** `["$.vct"]`, `["$.credentialSubject.email"]`
+      </ResponseField>
+      
+      <ResponseField name="filter" type="object">
+        JSON Schema filter for the field value.
+        
+        **Example:** `{"const": "CustomerCredential"}`
+      </ResponseField>
+    </ResponseField>
+  </ResponseField>
+  
+  <ResponseField name="format" type="object">
+    Acceptable credential formats.
+    
+    **Supported formats:**
+    - `ldp_vc` - JSON-LD Verifiable Credentials
+    - `jwt_vc` - JWT Verifiable Credentials  
+    - `sd+jwt-vc` - Selective Disclosure JWT VCs
+    
+    **Example:**
+    ```json
+    {
+      "sd+jwt-vc": {
+        "alg": "ES256"
+      }
+    }
+    ```
+  </ResponseField>
+</ResponseField>
+
+---
+
+## Configuration
+
+To enable request by reference mode, the verifier must be properly configured:
+
+### Required Configuration
+
+```yaml
+verifier:
+  # Client identification for signing request objects
+  clientIdentification:
+    # Verifier's identifier (DID or x509_san_dns)
+    id: did:key:z6MkigCEnopwujz8Ten2dzq91nvMjqbKQYcifuZhqBsEkH7g
+    # Path to signing key (PEM format)
+    keyPath: /path/to/signing-key.pem
+    # Algorithm for signing (must match key)
+    requestKeyAlgorithm: ES256
+    # For x509_san_dns, include certificate chain
+    certificatePath: /path/to/cert-chain.pem
+    # Key ID (optional, uses id if not specified)
+    kid: my-key-id
+  
+  # Enable byReference mode
+  supportedModes: ["urlEncoded", "byReference", "byValue"]
+  
+  # Session expiry in seconds
+  sessionExpiry: 30
+```
+
+<Warning>
+  When using "byReference" or "byValue" modes, `clientIdentification` must be properly configured. The signing key must correspond with the specified `id` and algorithm.
+</Warning>
+
+### Supported Identifier Types
+
+<ResponseField name="DID (did:key, did:web)" type="string">
+  Decentralized Identifier. The verifier's DID document must be resolvable and contain the public key.
+  
+  **Example:** `did:key:z6MkigCEnopwujz8Ten2dzq91nvMjqbKQYcifuZhqBsEkH7g`
+</ResponseField>
+
+<ResponseField name="x509_san_dns" type="string">
+  X.509 certificate-based identification. Requires `certificatePath` to be configured with the full certificate chain.
+  
+  **Example:** `verifier.example.org`
+</ResponseField>
+
+---
+
+## Security Considerations
+
+### Request Object Signing
+
+The request object is signed using the verifier's private key. Wallets should:
+
+1. **Verify the signature** using the public key from the verifier's DID document or certificate
+2. **Validate the issuer** matches the expected verifier
+3. **Check expiration** to ensure the request hasn't expired
+4. **Validate the nonce** to prevent replay attacks
+
+### Request Expiry
+
+Request objects have a short expiry time (default 30 seconds) to minimize the window for replay attacks. The `exp` claim specifies the expiration time in seconds from issuance.
+
+<Note>
+  If a wallet receives an expired request object, it should request a new authentication flow. The expiry time can be configured via the `sessionExpiry` setting.
+</Note>
+
+### HTTPS Required
+
+The `request_uri` must use HTTPS in production to prevent man-in-the-middle attacks. The verifier should reject non-HTTPS request URIs unless in a development environment.
+
+---
+
+## Comparison of Request Modes
+
+| Feature | urlEncoded | byValue | byReference |
+|---------|------------|---------|-------------|
+| QR Code Size | Large | Very Large | Small |
+| Requires Signing | No | Yes | Yes |
+| Dynamic Updates | No | No | Possible |
+| Network Request | No | No | Yes |
+| Recommended For | Simple requests | N/A | Production use |
+
+### urlEncoded Example
+
+```text
+openid4vp://?response_type=vp_token&response_mode=direct_post&client_id=did:key:verifier&redirect_uri=https://verifier.org/api/v1/authentication_response&state=randomState&nonce=randomNonce
+```
+
+**Pros:** Simple, no additional request needed
+**Cons:** QR codes become very large with complex presentation definitions
+
+### byValue Example
+
+```text
+openid4vp://?client_id=did:key:verifier&request=eyJhbGciOiJFUzI1NiIsInR5cCI6Im9hdXRoLWF1dGh6LXJlcStqd3QifQ.eyJjbGllbnRfaWQiOiJkaWQ6a2V5OnZlcmlmaWVyIiwiZXhwIjozMCwiaXNzIjoiZGlkOmtleTp2ZXJpZmllciIsIm5vbmNlIjoicmFuZG9tTm9uY2UiLCJwcmVzZW50YXRpb25fZGVmaW5pdGlvbiI6eyJpZCI6IiIsImlucHV0X2Rlc2NyaXB0b3JzIjpudWxsLCJmb3JtYXQiOm51bGx9LCJyZWRpcmVjdF91cmkiOiJodHRwczovL3ZlcmlmaWVyLm9yZy9hcGkvdjEvYXV0aGVudGljYXRpb25fcmVzcG9uc2UiLCJyZXNwb25zZV90eXBlIjoidnBfdG9rZW4iLCJzY29wZSI6Im9wZW5pZCIsInN0YXRlIjoicmFuZG9tU3RhdGUifQ.signature
+```
+
+**Pros:** Signed request object, self-contained
+**Cons:** QR codes still very large, not practical for complex definitions
+
+### byReference Example (Recommended)
+
+```text
+openid4vp://?client_id=did:key:verifier&request_uri=https://verifier.org/api/v1/request/randomState&request_uri_method=get
+```
+
+**Pros:** Small QR codes, signed request objects, supports complex definitions
+**Cons:** Requires additional network request
+
+---
+
+## Error Responses
+
+<ResponseField name="summary" type="string">
+  Brief error description.
+</ResponseField>
+
+<ResponseField name="details" type="string">
+  Detailed error information.
+</ResponseField>
+
+### Common Errors
+
+```json 400 - Request Not Found
+{
+  "summary": "Request Not Found",
+  "details": "No request object found for the provided ID. The request may have expired or is invalid."
+}
+```
+
+```json 400 - Invalid Request ID
+{
+  "summary": "Invalid Input",
+  "details": "The provided request ID format is invalid."
+}
+```
+
+---
+
+## Related Endpoints
+
+- [Authentication Response](/api/authentication-response) - Submit the VP token after retrieving the request
+- [Authorization Endpoint](/api/authorization) - Start the authentication flow
+- [Same Device Flow](/api/samedevice) - Initiate same-device authentication

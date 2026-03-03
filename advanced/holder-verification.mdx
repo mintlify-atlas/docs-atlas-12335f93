@@ -1,0 +1,284 @@
+---
+title: Holder Verification
+description: Verify that the credential holder matches the presentation holder
+---
+
+Holder verification ensures that the entity presenting a credential is the legitimate holder of that credential. This prevents credential theft and unauthorized usage.
+
+## Overview
+
+When a wallet presents a Verifiable Credential, VCVerifier can verify that:
+1. The credential contains a holder claim
+2. The holder claim matches the presentation holder (the wallet DID)
+3. The claim is located at the expected path in the credential
+
+**Source reference:** `verifier/holder.go`
+
+## Configuration
+
+Holder verification is configured per credential type within the scope configuration:
+
+```yaml
+configRepo:
+  services:
+    - id: myService
+      defaultOidcScope: "default"
+      oidcScopes:
+        default:
+          credentials:
+            - type: CustomerCredential
+              holderVerification:
+                enabled: true
+                claim: "subject"
+```
+
+### Configuration Parameters
+
+<ResponseField name="enabled" type="boolean" required>
+  Whether to perform holder verification for this credential type.
+</ResponseField>
+
+<ResponseField name="claim" type="string" required>
+  Path to the holder claim within `credentialSubject`. Use dot notation for nested paths (e.g., `subject`, `participant.id`).
+</ResponseField>
+
+## How It Works
+
+### Step 1: Extract Presentation Holder
+
+The verifier extracts the holder DID from the Verifiable Presentation:
+
+```json
+{
+  "@context": ["https://www.w3.org/2018/credentials/v1"],
+  "type": ["VerifiablePresentation"],
+  "holder": "did:key:z6MksQu8W3TRLqYdJhnQSw5XKZy5QqT4yF4UqPMkVfTQ",
+  "verifiableCredential": [/* credentials */]
+}
+```
+
+### Step 2: Locate Holder Claim in Credential
+
+The verifier navigates to the configured claim path in the credential's `credentialSubject`:
+
+```json
+{
+  "@context": ["https://www.w3.org/2018/credentials/v1"],
+  "type": ["VerifiableCredential", "CustomerCredential"],
+  "credentialSubject": {
+    "subject": "did:key:z6MksQu8W3TRLqYdJhnQSw5XKZy5QqT4yF4UqPMkVfTQ",
+    "name": "Alice Corp"
+  }
+}
+```
+
+### Step 3: Compare Values
+
+The verifier compares the holder claim value with the presentation holder. They must match exactly.
+
+<Info>
+  The comparison is case-sensitive and requires exact string matching.
+</Info>
+
+## Examples
+
+### Basic Holder Verification
+
+Simple holder claim at the root of `credentialSubject`:
+
+```yaml
+holderVerification:
+  enabled: true
+  claim: "id"
+```
+
+**Expected credential structure:**
+```json
+{
+  "credentialSubject": {
+    "id": "did:key:z6MksQu8W3TRLqYdJhnQSw5XKZy5QqT4yF4UqPMkVfTQ"
+  }
+}
+```
+
+### Nested Claim Path
+
+Holder identifier nested within an object:
+
+```yaml
+holderVerification:
+  enabled: true
+  claim: "participant.did"
+```
+
+**Expected credential structure:**
+```json
+{
+  "credentialSubject": {
+    "participant": {
+      "did": "did:key:z6MksQu8W3TRLqYdJhnQSw5XKZy5QqT4yF4UqPMkVfTQ",
+      "name": "Alice Corp"
+    }
+  }
+}
+```
+
+### Multiple Credentials
+
+Different holder claims for different credential types:
+
+```yaml
+credentials:
+  - type: CustomerCredential
+    holderVerification:
+      enabled: true
+      claim: "subject"
+  
+  - type: EmployeeCredential
+    holderVerification:
+      enabled: true
+      claim: "employee.identifier"
+```
+
+### Disabled Verification
+
+Some credentials may not require holder verification:
+
+```yaml
+credentials:
+  - type: PublicCredential
+    holderVerification:
+      enabled: false
+```
+
+<Warning>
+  Disabling holder verification allows anyone who possesses the credential to present it. Only disable for credentials that don't require binding to a specific holder.
+</Warning>
+
+## Error Handling
+
+### Missing Holder Claim
+
+If the credential doesn't contain the configured claim:
+
+```json
+{
+  "error": "invalid_vc_holder",
+  "description": "Credential has no holder claim"
+}
+```
+
+### Holder Mismatch
+
+If the holder claim doesn't match the presentation holder:
+
+```json
+{
+  "error": "invalid_vc_holder",
+  "description": "Credential holder does not match presentation holder"
+}
+```
+
+The verifier logs will show:
+```
+Credential has not expected holder 'did:key:z6Mks...' at claim path 'subject'
+```
+
+## Implementation Details
+
+The `HolderValidationService` performs holder verification:
+
+**Source reference:** `verifier/holder.go:15-42`
+
+```go
+func (hvs *HolderValidationService) ValidateVC(
+  verifiableCredential *verifiable.Credential,
+  validationContext ValidationContext,
+) (result bool, err error) {
+  holderContext := validationContext.(HolderValidationContext)
+  
+  // Navigate the claim path
+  path := strings.Split(holderContext.claim, ".")
+  currentClaim := credentialJson["credentialSubject"]
+  
+  // Compare with expected holder
+  valid := currentClaim[path].(string) == holderContext.holder
+  return valid, err
+}
+```
+
+## Security Considerations
+
+### Binding Strength
+
+<Note>
+  Holder verification only checks that the credential contains a matching identifier. It doesn't verify that the presenter controls that identifier—that's done through proof verification.
+</Note>
+
+Complete security requires:
+1. **Holder verification**: Credential contains correct holder claim
+2. **Proof verification**: Presentation is signed by the holder
+3. **Issuer trust**: Credential is issued by a trusted authority
+
+### Bearer vs. Holder-Bound Credentials
+
+| Type | Holder Verification | Use Case |
+|------|-------------------|----------|
+| **Bearer** | Disabled | Public credentials, anyone can present |
+| **Holder-bound** | Enabled | Personal credentials, must be presented by holder |
+
+### Claim Path Security
+
+Ensure the claim path points to a verified field set by the issuer, not user-supplied data:
+
+```yaml
+# ✅ Good: Issuer-controlled field
+holderVerification:
+  claim: "id"
+
+# ❌ Bad: User-supplied field
+holderVerification:
+  claim: "selfReportedId"
+```
+
+## Best Practices
+
+1. **Enable for personal credentials**: Always enable holder verification for credentials bound to specific individuals or organizations
+
+2. **Use consistent claim paths**: Standardize holder claim locations across your credential schemas
+
+3. **Document requirements**: Clearly document the required credential structure for issuers
+
+4. **Test claim paths**: Verify that your configured claim paths match actual credential structure
+
+5. **Monitor failures**: Track holder verification failures to detect potential security issues
+
+## Complete Configuration Example
+
+```yaml
+configRepo:
+  services:
+    - id: marketplace
+      defaultOidcScope: "seller"
+      oidcScopes:
+        seller:
+          credentials:
+            - type: SellerCredential
+              holderVerification:
+                enabled: true
+                claim: "seller.did"
+              trustedIssuersLists:
+                VerifiableCredential:
+                  - https://tir.example.com
+                SellerCredential:
+                  - https://tir.example.com
+          presentationDefinition:
+            id: seller-presentation
+            input_descriptors:
+              - id: seller-credential
+                constraints:
+                  fields:
+                    - path: ["$.type"]
+                      filter:
+                        const: "SellerCredential"
+```

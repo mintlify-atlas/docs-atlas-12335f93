@@ -1,0 +1,267 @@
+---
+title: 'Authentication Response'
+description: 'Submit verifiable presentations after authentication flow'
+---
+
+The authentication response endpoint is used to submit the verifiable presentation (VP) token after a successful authentication flow. It supports both POST and GET methods for different response modes.
+
+## POST /api/v1/authentication_response
+
+Submits the verifiable presentation as form-encoded data. This is the primary endpoint for receiving authentication responses in OIDC4VP flows.
+
+### Request
+
+<ParamField query="state" type="string" required>
+  The session identifier that was provided in the original authentication request. This correlates the response with the authentication session.
+  
+  **Example:** `274e7465-cc9d-4cad-b75f-190db927e56a`
+</ParamField>
+
+<ParamField query="client_id" type="string">
+  The ID of the client/service that initiated the authentication flow.
+  
+  **Example:** `packet-delivery-portal`
+</ParamField>
+
+<ParamField body="vp_token" type="string" required>
+  The verifiable presentation token containing one or more verifiable credentials. Must be Base64-URL encoded (not standard Base64).
+  
+  The VP token can be in one of two formats:
+  - **JSON-LD VP:** A JSON-LD formatted Verifiable Presentation
+  - **SD-JWT VC:** A Selective Disclosure JWT Verifiable Credential
+</ParamField>
+
+<ParamField body="presentation_submission" type="string" required>
+  A Base64-URL encoded PresentationSubmission object as specified by the [DIF Presentation Exchange](https://identity.foundation/presentation-exchange/#presentation-submission) specification.
+  
+  The presentation submission describes how the submitted credentials fulfill the requested presentation definition.
+</ParamField>
+
+<Note>
+  **Important:** Both `vp_token` and `presentation_submission` must use Base64-URL-Safe encoding, not standard Base64 encoding.
+</Note>
+
+### Response
+
+<ResponseField name="status" type="number">
+  HTTP status code indicating the result.
+</ResponseField>
+
+**Status Codes:**
+- `204` - Authentication successful, credential stored for the session
+- `302` - Same-device flow redirect with authorization code
+- `400` - Invalid request (missing parameters, invalid token format)
+
+### Example Request
+
+<CodeGroup>
+```bash cURL
+curl -X 'POST' \
+  'https://verifier.example.org/api/v1/authentication_response?state=OUBlw8wlCZZOcTwRN2wURA' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d 'vp_token=eyJ0eXBlIjpbIlZlcmlmaWFibGVQcmVzZW50YXRpb24iXSwidmVyaWZpYWJsZUNyZWRlbnRpYWwiOlsiZXlKaGJHY2lPaUpGVXpJMU5pSXNJblI1Y0NJZ09pQWlTbGRVSWl3aWEybGtJaUE2SUNKa2FXUTZhMlY1T25wRWJtRmxWbGhVVGxGNVpEbFFaSE5oVmpOaGIySkdhMDFaYmxSMlNsSmplVFJCVVZKSWRVVTJaMUZ0T1ZOdFYwUWlmUS5leUp1WW1ZaU9qRTNNRGM1T0RRek1UQXNJbXAwYVNJNkluVnlhVHAxZFdsa09tTmlOV1k1WmpGakxUQXhOMkl0TkdRME5DMDRORFl4TFRjeVpETXlNMlJoT0RSalppSXNJbWx6Y3lJNkltUnBaRHByWlhrNmVrUnVZV1ZXV0ZST1VYbGtPVkJrYzJGV00yRnZZa1pyVFZsdVZIWktVbU41TkVGUlVraDFSVFpuVVcwNVUyMVhSQ0lzSW5OMVlpSTZJblZ5YmpwMWRXbGtPbVF5TUdZd09URmhMVGt4Wm1RdE5EZGhNaTA0WVRnM0xUUTFZamcyTURJMFltVTVaU0lzSW5aaklqcDdJblI1Y0dVaU9sc2lWbVZ5YVdacFlXSnNaVU55WldSbGJuUnBZV3dpWFN3aWFYTnpkV1Z5SWpvaVpHbGtPbXRsZVRwNlJHNWhaVlpZVkU1UmVXUTVVR1J6WVZZellXOWlSbXROV1c1VWRrcFNZM2swUVZGU1NIVkZObWRSYlRsVGJWZEVJaXdpYVhOemRXRnVZMlZFWVhSbElqb3hOekEzT1RnME16RXdPREV5TENKcFpDSTZJblZ5YVRwMWRXbGtPbU5pTldZNVpqRmpMVEF4TjJJdE5HUTBOQzA0TkRZeExUY3laRE15TTJSaE9EUmpaaUlzSW1OeVpXUmxiblJwWVd4VGRXSnFaV04wSWpwN0ltWnBjbk4wVG1GdFpTSTZJa2hoY0hCNVVHVjBjeUlzSW5KdmJHVnpJanBiZXlKdVlXMWxjeUk2V3lKSFQweEVYME5WVTFSUFRVVlNJaXdpVTFSQlRrUkJVa1JmUTFWVFZFOU5SVklpWFN3aWRHRnlaMlYwSWpvaVpHbGtPbXRsZVRwNk5rMXJjMVUyZEUxbVltRkVlbnBoVW1VMWIwWkZOR1ZhVkZaVVZqUklTazAwWm0xUlYxZEhjMFJIVVZaelJYSWlmVjBzSW1aaGJXbHNlVTVoYldVaU9pSlFjbWx0WlNJc0ltbGtJam9pZFhKdU9uVjFhV1E2WkRJd1pqQTVNV0V0T1RGbVpDMDBOMkV5TFRoaE9EY3RORFZpT0RZd01qUmlaVGxsSWl3aWMzVmlhbVZqZEVScFpDSTZJbVJwWkRwM1pXSTZaRzl0WlMxdFlYSnJaWFJ3YkdGalpTNXZjbWNpTENKbmVEcHNaV2RoYkU1aGJXVWlPaUprYjIxbExXMWhjbXRsZEhCc1lXTmxMbTl5WnlJc0ltVnRZV2xzSWpvaWNISnBiV1V0ZFhObGNrQm9ZWEJ3ZVhCbGRITXViM0puSW4wc0lrQmpiMjUwWlhoMElqcGJJbWgwZEhCek9pOHZkM2QzTG5jekxtOXlaeTh5TURFNEwyTnlaV1JsYm5ScFlXeHpMM1l4SWwxOWZRLlBqSVEtdEh5Zy1UZEdGTFVld1BreWc0cTJVODFkUGhpNG4wV3dXZ05KRGx3VW5mbk5OV1BIUkpDWlJnckQxMmFVYmRhakgtRlRkYTE3N21VRUd5RGZnIl0sImhvbGRlciI6ImRpZDp1c2VyOmdvbGQiLCJAY29udGV4dCI6WyJodHRwczovL3d3dy53My5vcmcvMjAxOC9jcmVkZW50aWFscy92MSJdfQ&presentation_submission=ewogICJpZCI6ICJzdHJpbmciLAogICJkZWZpbml0aW9uX2lkIjogIjMyZjU0MTYzLTcxNjYtNDhmMS05M2Q4LWZmMjE3YmRiMDY1MyIsCiAgImRlc2NyaXB0b3JfbWFwIjogWwogICAgewogICAgICAiaWQiOiAiaWRfY3JlZGVudGlhbCIsCiAgICAgICJmb3JtYXQiOiAibGRwX3ZjIiwKICAgICAgInBhdGgiOiAiJCIsCiAgICAgICJwYXRoX25lc3RlZCI6ICJzdHJpbmciCiAgICB9CiAgXQp9'
+```
+
+```javascript JavaScript
+const formData = new URLSearchParams({
+  vp_token: 'eyJ0eXBlIjpbIlZlcmlmaWFibGVQcmVzZW50YXRpb24iXS4uLg==',
+  presentation_submission: 'ewogICJpZCI6ICJzdHJpbmciLC4uLg=='
+});
+
+const response = await fetch(
+  'https://verifier.example.org/api/v1/authentication_response?state=OUBlw8wlCZZOcTwRN2wURA',
+  {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body: formData
+  }
+);
+```
+</CodeGroup>
+
+### VP Token Structure
+
+The `vp_token` contains a Verifiable Presentation with embedded credentials:
+
+<CodeGroup>
+```json Verifiable Presentation
+{
+  "@context": [
+    "https://www.w3.org/2018/credentials/v1"
+  ],
+  "type": [
+    "VerifiablePresentation"
+  ],
+  "verifiableCredential": [
+    "eyJhbGciOiJFUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6IFwiZGlkOmtleTp6RG5hZVZYVE5ReTlQZHNhVjNhb2JGa01ZblR2SlJjeTRBUVJIdUU2Z1FtOVNtV0RcIn0..."
+  ],
+  "id": "ebc6f1c2",
+  "holder": {
+    "id": "did:key:z6Mks9m9ifLwy3JWqH4c57EbBQVS2SpRCjfa79wHb5vWM6vh"
+  },
+  "proof": {
+    "type": "JsonWebSignature2020",
+    "creator": "did:key:z6Mks9m9ifLwy3JWqH4c57EbBQVS2SpRCjfa79wHb5vWM6vh",
+    "created": "2023-01-06T07:51:36Z",
+    "verificationMethod": "did:key:z6Mks9m9ifLwy3JWqH4c57EbBQVS2SpRCjfa79wHb5vWM6vh#z6Mks9m9ifLwy3JWqH4c57EbBQVS2SpRCjfa79wHb5vWM6vh",
+    "jws": "eyJiNjQiOmZhbHNlLCJjcml0IjpbImI2NCJdLCJhbGciOiJFZERTQSJ9..6xSqoZja0NwjF0af9Zknqx3Cbh9GENunBf9C8uL2ulGfwus3UFM_ZnhPjWtHPl-72E9p3BT5f2ptZoYktMKpDA"
+  }
+}
+```
+
+```json Presentation Submission
+{
+  "id": "string",
+  "definition_id": "32f54163-7166-48f1-93d8-ff217bdb0653",
+  "descriptor_map": [
+    {
+      "id": "id_credential",
+      "format": "ldp_vc",
+      "path": "$",
+      "path_nested": "string"
+    }
+  ]
+}
+```
+</CodeGroup>
+
+### Presentation Submission Schema
+
+<ResponseField name="id" type="string" required>
+  Unique identifier for the presentation submission.
+</ResponseField>
+
+<ResponseField name="definition_id" type="string" required>
+  Must be the ID of the PresentationDefinition that was requested.
+  
+  **Example:** `32f54163-7166-48f1-93d8-ff217bdb0653`
+</ResponseField>
+
+<ResponseField name="descriptor_map" type="array" required>
+  Array of descriptor objects mapping submitted credentials to requested input descriptors.
+  
+  <ResponseField name="id" type="string" required>
+    Matches the `id` property of the Input Descriptor in the Presentation Definition.
+    
+    **Example:** `id_credential`
+  </ResponseField>
+  
+  <ResponseField name="format" type="string" required>
+    The Claim Format Designation denoting the data format.
+    
+    **Supported formats:** `ldp_vc`, `jwt_vc`, `sd+jwt-vc`
+  </ResponseField>
+  
+  <ResponseField name="path" type="string" required>
+    JSONPath expression indicating the location of the submitted credential.
+    
+    **Example:** `$`
+  </ResponseField>
+  
+  <ResponseField name="path_nested" type="object">
+    Nested descriptor for complex credential structures.
+  </ResponseField>
+</ResponseField>
+
+---
+
+## GET /api/v1/authentication_response
+
+Alternative method for submitting authentication responses via query parameters. Used in certain flow variations where POST is not feasible.
+
+### Request
+
+<ParamField query="state" type="string" required>
+  The session identifier provided in the original authentication request.
+  
+  **Example:** `274e7465-cc9d-4cad-b75f-190db927e56a`
+</ParamField>
+
+<ParamField query="vp_token" type="string" required>
+  Base64-URL encoded Verifiable Presentation containing the credentials.
+</ParamField>
+
+<ParamField query="presentation_submission" type="string" required>
+  Base64-URL encoded PresentationSubmission as specified by [DIF Presentation Exchange](https://identity.foundation/presentation-exchange/#presentation-submission).
+</ParamField>
+
+### Response
+
+**Status Codes:**
+- `204` - Authentication successful
+- `400` - Invalid request parameters
+
+### Example Request
+
+```bash
+curl -X 'GET' \
+  'https://verifier.example.org/api/v1/authentication_response?state=OUBlw8wlCZZOcTwRN2wURA&vp_token=eyJ0eXBlIjpbIlZlcmlmaWFibGVQcmVzZW50YXRpb24iXS4uLg&presentation_submission=ewogICJpZCI6ICJzdHJpbmciLC4uLg'
+```
+
+---
+
+## Verification Process
+
+When a credential is submitted, the VCVerifier performs the following verification steps:
+
+1. **Cryptographic Verification**
+   - Validates the proof signature on the Verifiable Presentation
+   - Verifies the credential signatures using configured verification policies
+
+2. **Issuer Trust Verification**
+   - Checks that the issuer is registered in the configured Trusted Participants Registry
+   - Validates that the issuer is authorized to issue credentials of the given type
+   - Verifies against Trusted Issuers Lists (TIL)
+
+3. **Holder Verification** (if enabled)
+   - Validates that the holder of the credential matches the expected subject
+   - Configurable via `holderVerification` settings
+
+4. **Content Validation**
+   - Validates the credential structure based on configured validation mode
+   - Options: `none`, `combined`, `jsonLd`, `baseContext`
+
+<Warning>
+  **Known Limitation:** The verifier currently accepts presentation submissions but does not fully evaluate them against the presentation definition. All credentials in the VP token are verified, but only the first credential is included in the generated JWT.
+</Warning>
+
+## Error Responses
+
+<ResponseField name="summary" type="string">
+  Brief description of the error.
+</ResponseField>
+
+<ResponseField name="details" type="string">
+  Detailed explanation of what went wrong.
+</ResponseField>
+
+### Common Errors
+
+```json Missing State
+{
+  "summary": "Missing Input",
+  "details": "Expected 'state' as a query parameter."
+}
+```
+
+```json Invalid Token
+{
+  "summary": "Unable to decode token",
+  "details": "The vp_token could not be decoded. Ensure it is Base64-URL encoded."
+}
+```
+
+```json Verification Error
+{
+  "summary": "Verification failed",
+  "details": "The credential could not be verified against the trusted issuers registry."
+}
+```
+
+## Related Endpoints
+
+- [Token Endpoint](/api/token) - Exchange authorization code for JWT
+- [Request by Reference](/api/request-by-reference) - Retrieve request objects
+- [Authorization Endpoint](/api/authorization) - Start the authentication flow

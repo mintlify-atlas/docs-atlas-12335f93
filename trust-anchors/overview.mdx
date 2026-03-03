@@ -1,0 +1,89 @@
+---
+title: Trust Anchors Overview
+description: Understanding trust registries and participant verification in VCVerifier
+---
+
+## Introduction
+
+Trust anchors are critical components in the VCVerifier ecosystem that enable verification of credential issuers. When a Verifiable Credential is presented, VCVerifier validates not only the credential's cryptographic integrity but also confirms that the issuer is authorized to issue that type of credential.
+
+## What are Trust Anchors?
+
+Trust anchors, also called trust registries or participant lists, are registries that maintain lists of trusted credential issuers. They serve as authoritative sources for determining whether a particular issuer should be trusted to issue specific types of credentials.
+
+During the verification flow, VCVerifier performs the following trust checks:
+
+1. **Cryptographic Verification** - Validates the credential signature using WaltID-SSIKit policies
+2. **Gaia-X Chain Validation** - (Optional) Verifies Gaia-X compliant credential chains
+3. **Trusted Participant Check** - Confirms the issuer is registered in configured trust registries
+4. **Authorized Issuer Check** - Verifies the issuer is authorized to issue credentials with specific claims
+
+## Supported Trust Registries
+
+VCVerifier currently supports two types of trust registries:
+
+<CardGroup cols={2}>
+  <Card title="EBSI Trusted Issuers Registry" icon="shield-check" href="./ebsi-tir">
+    European Blockchain Services Infrastructure compliant registry API
+  </Card>
+  <Card title="Gaia-X Registry" icon="network-wired" href="./gaia-x">
+    Gaia-X Digital Clearing House registry services for participant verification
+  </Card>
+</CardGroup>
+
+## Configuration Architecture
+
+<Note>
+  While trust anchors can be configured statically via YAML files, it's recommended to use the [Credentials-Config-Service](https://github.com/FIWARE/credentials-config-service) (version ≥2.0.0) for dynamic configuration management.
+</Note>
+
+Trust registries are configured per credential type within service scopes. This allows fine-grained control over which registries are consulted for different types of credentials.
+
+### Configuration Hierarchy
+
+```
+configRepo
+  └── services
+      └── [service-id]
+          └── trustedParticipants
+              └── [credential-type]
+                  └── registry configurations
+```
+
+## Trust Verification Logic
+
+When VCVerifier receives a credential, it:
+
+1. Identifies the credential type from the presentation
+2. Retrieves the configured trust registries for that credential type
+3. Queries each configured registry to verify the issuer
+4. **Accepts the issuer if found in at least one configured registry**
+5. Proceeds with additional verification steps
+
+<Warning>
+  If an issuer is not found in any configured trust registry, the verification fails and the credential is rejected.
+</Warning>
+
+## Performance and Caching
+
+VCVerifier implements intelligent caching mechanisms to optimize performance:
+
+- **Issuer Cache** - Caches issuer verification results to reduce registry queries
+- **TIR Cache** - Configurable expiry time for EBSI TIR responses (`tirCacheExpiry`)
+- **TIL Cache** - Configurable expiry time for trusted issuer lists (`tilCacheExpiry`)
+
+Caching significantly reduces latency and load on trust registries, especially for frequently verified issuers.
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="EBSI TIR Integration" icon="plug" href="./ebsi-tir">
+    Configure EBSI Trusted Issuers Registry
+  </Card>
+  <Card title="Gaia-X Integration" icon="star" href="./gaia-x">
+    Set up Gaia-X Registry verification
+  </Card>
+  <Card title="Mixed Usage" icon="layer-group" href="./mixed-usage">
+    Use multiple registries simultaneously
+  </Card>
+</CardGroup>

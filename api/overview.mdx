@@ -1,0 +1,612 @@
+---
+title: API Overview
+description: Complete guide to the VCVerifier API for SIOP-2/OIDC4VP authentication flows
+---
+
+## Introduction
+
+The VCVerifier API provides endpoints for implementing [SIOP-2](https://openid.net/specs/openid-connect-self-issued-v2-1_0.html) and [OIDC4VP](https://openid.net/specs/openid-4-verifiable-presentations-1_0.html) compliant authentication flows. It exchanges Verifiable Credentials for JWT tokens that can be used for authorization and authentication in downstream components.
+
+<Note>
+VCVerifier acts as a **Relying Party** in the SIOP-2 specification, verifying credentials and issuing JWT tokens for authenticated sessions.
+</Note>
+
+## Base URL
+
+The API is served on port 8080 by default. For production deployments:
+
+```
+https://your-domain.com/
+```
+
+For local development:
+
+```
+http://localhost:8080/
+```
+
+## API Endpoints
+
+<CardGroup cols={2}>
+  <Card title="Frontend Endpoints" icon="desktop" href="#frontend-endpoints">
+    Endpoints for browser-based H2M interactions with QR code flows
+  </Card>
+  <Card title="API Endpoints" icon="code" href="#api-endpoints">
+    RESTful endpoints for M2M integrations and programmatic access
+  </Card>
+  <Card title="OpenID Configuration" icon="gear" href="#openid-configuration">
+    Standard OpenID Connect discovery and configuration endpoints
+  </Card>
+  <Card title="Token Exchange" icon="key" href="#token-exchange">
+    OAuth 2.0 compliant token endpoints for retrieving JWTs
+  </Card>
+</CardGroup>
+
+## Authentication Overview
+
+VCVerifier uses a multi-step authentication flow:
+
+1. **Initiation**: Client starts the flow via authorization or login endpoints
+2. **Presentation**: User presents Verifiable Credentials via wallet
+3. **Verification**: VCVerifier validates credentials against trusted registries
+4. **Token Issuance**: JWT access token is generated with credential claims
+
+<Warning>
+All credentials are verified against configured Trusted Issuers Registries (TIR) and Trusted Participants Lists before tokens are issued.
+</Warning>
+
+## Frontend Endpoints
+
+These endpoints are designed for human-to-machine (H2M) interactions.
+
+### Login with QR Code (v1)
+
+**GET** `/api/v1/loginQR`
+
+Presents a rendered HTML page with a QR code for initiating the SIOP flow.
+
+**Parameters:**
+
+<ResponseField name="state" type="string" required>
+  Session state identifier (UUID format recommended)
+  
+  Example: `274e7465-cc9d-4cad-b75f-190db927e56a`
+</ResponseField>
+
+<ResponseField name="client_callback" type="string (URL)" required>
+  Endpoint to receive the authentication callback with state and code
+  
+  Example: `https://my-portal.com/auth_callback`
+</ResponseField>
+
+<ResponseField name="client_id" type="string" default="optional">
+  Service identifier for retrieving scope and trust configuration
+  
+  Example: `packet-delivery-portal`
+</ResponseField>
+
+<ResponseField name="nonce" type="string" required>
+  Cryptographic nonce for replay protection
+  
+  Example: `274e7465-cc9d-4cad-b75f-190db927e56a`
+</ResponseField>
+
+<ResponseField name="request_mode" type="enum" default="byReference">
+  Mode for authorization request encoding
+  
+  Options: `urlEncoded`, `byValue`, `byReference`
+</ResponseField>
+
+**Responses:**
+
+<ResponseField name="200" type="text/html">
+  Rendered HTML page containing the QR code for wallet scanning
+</ResponseField>
+
+<ResponseField name="400" type="application/json">
+  Invalid request parameters
+  
+  ```json
+  {
+    "summary": "Missing Input",
+    "details": "Expected 'state' as a query parameter."
+  }
+  ```
+</ResponseField>
+
+### Login with QR Code (v2)
+
+**GET** `/api/v2/loginQR`
+
+Enhanced version with additional parameters for more flexible authentication flows.
+
+**Parameters:**
+
+Includes all v1 parameters plus:
+
+<ResponseField name="redirect_uri" type="string (URL)" default="optional">
+  Custom redirect URI for the authentication response
+  
+  Example: `https://my-app.com/redirect`
+</ResponseField>
+
+<ResponseField name="request_uri" type="string (URL)" default="optional">
+  URI for retrieving a request object (JWT)
+  
+  Example: `https://my-app.com/request.jwt`
+</ResponseField>
+
+<ResponseField name="scope" type="string" default="optional">
+  OpenID Connect scope for credential types
+  
+  Example: `openid`
+</ResponseField>
+
+## API Endpoints
+
+These endpoints are designed for programmatic access and machine-to-machine (M2M) integrations.
+
+### Authorization Endpoint
+
+**GET** `/api/v1/authorization`
+
+OAuth 2.0 compliant authorization endpoint providing redirect to the concrete authorization method.
+
+**Parameters:**
+
+<ResponseField name="state" type="string" required>
+  Session state identifier
+</ResponseField>
+
+<ResponseField name="client_id" type="string" default="optional">
+  Client application identifier
+</ResponseField>
+
+<ResponseField name="redirect_uri" type="string (URL)" default="optional">
+  Callback URI for authorization response
+</ResponseField>
+
+<ResponseField name="request_uri" type="string (URL)" default="optional">
+  URI reference to a request object containing authorization parameters
+</ResponseField>
+
+<ResponseField name="scope" type="string" default="optional">
+  Requested credential types/scopes
+</ResponseField>
+
+<ResponseField name="nonce" type="string" required>
+  Cryptographic nonce value
+</ResponseField>
+
+<ResponseField name="response_type" type="enum" default="optional">
+  Type of expected response
+  
+  Options: `code`
+</ResponseField>
+
+**Responses:**
+
+<ResponseField name="302" type="redirect">
+  Redirect to the authorization entry point with encoded parameters
+</ResponseField>
+
+### Start SIOP Flow
+
+**GET** `/api/v1/startsiop`
+
+Initiates the SIOP flow and returns the OpenID connection string.
+
+**Parameters:**
+
+<ResponseField name="state" type="string" required>
+  Session state identifier
+</ResponseField>
+
+<ResponseField name="client_callback" type="string (URL)" required>
+  Endpoint to receive the JWT token
+</ResponseField>
+
+<ResponseField name="client_id" type="string" default="optional">
+  Service identifier for configuration retrieval
+</ResponseField>
+
+**Responses:**
+
+<ResponseField name="200" type="text/plain">
+  OpenID connection string for wallet interaction
+  
+  ```
+  openid://?scope=dsba.credentials.presentation.PacketDeliveryService&response_type=vp_token&response_mode=post&client_id=did:key:z6MktZy7CErCqdLvknH6g9YNVpWupuBNBNovsBrj4DFGn4R1&redirect_uri=http://localhost:3000/verifier/api/v1/authenticationresponse&state=&nonce=BfEte4DFdlmdO7a_fBiXTw
+  ```
+</ResponseField>
+
+### Same Device Flow
+
+**GET** `/api/v1/samedevice`
+
+Starts the SIOP flow for credentials held by the same device (no QR code needed).
+
+**Parameters:**
+
+<ResponseField name="state" type="string" required>
+  Session state identifier
+</ResponseField>
+
+<ResponseField name="client_id" type="string" default="optional">
+  Client application identifier
+</ResponseField>
+
+<ResponseField name="scope" type="string" default="optional">
+  Requested credential scopes
+</ResponseField>
+
+<ResponseField name="request_mode" type="enum" default="byReference">
+  Authorization request mode
+</ResponseField>
+
+<ResponseField name="redirect_path" type="string" default="optional">
+  Custom redirect path (defaults to oid4vp deeplink)
+  
+  Example: `/`
+</ResponseField>
+
+**Responses:**
+
+<ResponseField name="302" type="redirect">
+  Redirect to authentication response path with authorization parameters
+</ResponseField>
+
+### Request Object by Reference
+
+**GET** `/api/v1/request/{id}`
+
+Returns a JWT-encoded request object by reference as defined in [OpenID4VP Section 5](https://openid.net/specs/openid-4-verifiable-presentations-1_0.html#section-5).
+
+**Path Parameters:**
+
+<ResponseField name="id" type="string" required>
+  Request identifier (typically UUID)
+  
+  Example: `urn:uuid:274e7465-cc9d-4cad-b75f-190db927e56a`
+</ResponseField>
+
+**Responses:**
+
+<ResponseField name="200" type="text/html">
+  JWT-encoded request object containing authorization parameters
+</ResponseField>
+
+<ResponseField name="400" type="application/json">
+  Invalid request ID or expired request
+</ResponseField>
+
+### Authentication Response (POST)
+
+**POST** `/api/v1/authentication_response`
+
+Receives and stores the Verifiable Presentation from the wallet.
+
+**Parameters:**
+
+<ResponseField name="state" type="string (query)" required>
+  Session state identifier
+</ResponseField>
+
+<ResponseField name="client_id" type="string (query)" default="optional">
+  Client application identifier
+</ResponseField>
+
+**Request Body (application/x-www-form-urlencoded):**
+
+<ResponseField name="vp_token" type="string" required>
+  Base64URL-encoded Verifiable Presentation containing credential(s)
+</ResponseField>
+
+<ResponseField name="presentation_submission" type="string" required>
+  Base64URL-encoded Presentation Submission describing the presented credentials
+</ResponseField>
+
+<Note>
+Both `vp_token` and `presentation_submission` must use Base64-URL-Safe encoding (RFC 4648 Section 5), not standard Base64 encoding.
+</Note>
+
+**Responses:**
+
+<ResponseField name="204" type="No Content">
+  Credential successfully verified and stored
+</ResponseField>
+
+<ResponseField name="400" type="application/json">
+  Invalid presentation or verification failure
+</ResponseField>
+
+### Authentication Response (GET)
+
+**GET** `/api/v1/authentication_response`
+
+Alternative method for receiving authentication responses via query parameters.
+
+**Parameters:**
+
+<ResponseField name="state" type="string" required>
+  Session state identifier
+</ResponseField>
+
+<ResponseField name="vp_token" type="string" required>
+  Base64URL-encoded Verifiable Presentation
+</ResponseField>
+
+<ResponseField name="presentation_submission" type="string" required>
+  Base64URL-encoded Presentation Submission
+</ResponseField>
+
+**Responses:**
+
+<ResponseField name="204" type="No Content">
+  Credential successfully verified and stored
+</ResponseField>
+
+## Token Exchange
+
+### Token Endpoint
+
+**POST** `/token`
+
+OAuth 2.0 compliant token endpoint for exchanging authorization codes for JWT access tokens.
+
+**Request Body (application/x-www-form-urlencoded):**
+
+<ResponseField name="grant_type" type="enum" required>
+  OAuth 2.0 grant type
+  
+  Options: `authorization_code`, `urn:ietf:params:oauth:grant-type:token-exchange`
+</ResponseField>
+
+<ResponseField name="code" type="string" required>
+  Authorization code from the authentication response
+  
+  Example: `myRandomString`
+</ResponseField>
+
+<ResponseField name="redirect_uri" type="string (URL)" required>
+  Same URI as provided in the original request
+  
+  Example: `https://my-portal.com/auth_callback`
+</ResponseField>
+
+**Token Exchange Parameters (when grant_type is token-exchange):**
+
+<ResponseField name="resource" type="string (URL)" default="optional">
+  Target service URI where the token will be used
+</ResponseField>
+
+<ResponseField name="audience" type="string" default="optional">
+  Logical name of the target service
+</ResponseField>
+
+<ResponseField name="scope" type="array[string]" default="optional">
+  Space-delimited list of desired scopes
+</ResponseField>
+
+<ResponseField name="requested_token_type" type="enum" default="optional">
+  Type of security token requested
+  
+  Options: `urn:ietf:params:oauth:token-type:access_token`
+</ResponseField>
+
+<ResponseField name="subject_token" type="string" default="optional">
+  Security token representing the party's identity
+</ResponseField>
+
+<ResponseField name="subject_token_type" type="enum" default="optional">
+  Type of the subject token
+  
+  Options: `urn:eu:oidf:vp_token`
+</ResponseField>
+
+**Responses:**
+
+<ResponseField name="200" type="application/json">
+  JWT access token and metadata
+  
+  ```json
+  {
+    "token_type": "Bearer",
+    "issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+    "expires_in": 3600,
+    "access_token": "eyJhbGciOiJFUzI1NiIsImtpZCI6IldPSEZ1NEhaNTlTTTg1M0M3ZU4wT3ZsS0dyTWVlckRDcEhPVVJvVFF3SHciLCJ0eXAiOiJKV1QifQ..."
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="403" type="application/json">
+  Invalid or expired authorization code
+  
+  ```json
+  {
+    "summary": "Invalid Code",
+    "details": "The provided authorization code is invalid or has expired."
+  }
+  ```
+</ResponseField>
+
+### Service-Specific Token Endpoint
+
+**POST** `/services/{service_id}/token`
+
+Token endpoint scoped to a specific service configuration.
+
+**Path Parameters:**
+
+<ResponseField name="service_id" type="string" required>
+  Service identifier matching the configuration
+  
+  Example: `packet-delivery-portal`
+</ResponseField>
+
+**Request Body:**
+
+Same as the standard token endpoint.
+
+## OpenID Configuration
+
+### JWKS Endpoint
+
+**GET** `/.well-known/jwks`
+
+Provides the public keys for verifying JWT signatures issued by the verifier.
+
+**Responses:**
+
+<ResponseField name="200" type="application/json">
+  JWK Set containing public keys
+  
+  ```json
+  {
+    "keys": [
+      {
+        "kid": "179d7b56-6598-4045-9a32-4635e8b0f605",
+        "kty": "EC",
+        "use": "sig",
+        "alg": "ES256",
+        "crv": "P-256",
+        "x": "3ctHY_0KJW5ezT-oF39t3wPX6XlggWKOSPFW8iooBXk",
+        "y": "HXA4mBHgObIE56E92yxN5bYQ27wSxlVPfuNWaY06TTI"
+      }
+    ]
+  }
+  ```
+</ResponseField>
+
+### OpenID Provider Metadata
+
+**GET** `/services/{service_id}/.well-known/openid-configuration`
+
+Returns OpenID Provider configuration for a specific service.
+
+**Path Parameters:**
+
+<ResponseField name="service_id" type="string" required>
+  Service identifier
+</ResponseField>
+
+**Responses:**
+
+<ResponseField name="200" type="application/json">
+  OpenID Provider Metadata
+  
+  ```json
+  {
+    "issuer": "https://api-test.ebsi.eu/authorisation/v4",
+    "authorization_endpoint": "https://api-test.ebsi.eu/authorisation/v4/authorize",
+    "token_endpoint": "https://api-test.ebsi.eu/authorisation/v4/token",
+    "presentation_definition_endpoint": "https://api-test.ebsi.eu/authorisation/v4/presentation-definitions",
+    "jwks_uri": "https://api-test.ebsi.eu/authorisation/v4/jwks",
+    "scopes_supported": ["openid", "didr_invite", "didr_write"],
+    "response_types_supported": ["token"],
+    "response_mode_supported": ["query", "fragment"],
+    "grant_types_supported": ["vp_token"],
+    "subject_types_supported": ["public"],
+    "id_token_signing_alg_values_supported": ["ES256"],
+    "request_object_signing_alg_values_supported": ["ES256"],
+    "request_parameter_supported": true,
+    "token_endpoint_auth_methods_supported": ["private_key_jwt"]
+  }
+  ```
+</ResponseField>
+
+## Common Response Formats
+
+### Error Response
+
+All error responses follow a consistent format:
+
+```json
+{
+  "summary": "Error Type",
+  "details": "Detailed error message explaining what went wrong."
+}
+```
+
+**Common Error Types:**
+
+- **Missing Input**: Required parameter is missing
+- **Invalid Credential**: Credential verification failed
+- **Expired Session**: Authentication session has expired (default: 30 seconds)
+- **Untrusted Issuer**: Credential issuer not found in trusted registries
+- **Invalid Code**: Authorization code is invalid or expired
+
+## Error Codes
+
+| Status Code | Description | Common Causes |
+|-------------|-------------|---------------|
+| **200** | Success | Request completed successfully |
+| **204** | No Content | Credential stored successfully |
+| **302** | Redirect | Standard flow redirect |
+| **400** | Bad Request | Missing parameters, invalid format, validation failure |
+| **403** | Forbidden | Invalid authorization code, untrusted issuer |
+| **404** | Not Found | Request object or session not found |
+| **500** | Internal Server Error | Server-side processing error |
+
+## Request Modes
+
+VCVerifier supports three modes for encoding authorization requests:
+
+### URL Encoded
+
+Parameters are passed directly in the URL:
+
+```
+openid4vp://?response_type=vp_token&response_mode=direct_post&client_id=did:key:verifier&redirect_uri=https://verifier.org/api/v1/authentication_response&state=randomState&nonce=randomNonce
+```
+
+### By Value
+
+Parameters are encoded in a signed JWT passed as the `request` parameter:
+
+```
+openid4vp://?client_id=did:key:verifier&request=eyJhbGciOiJFUzI1NiIsInR5cCI6Im9hdXRoLWF1dGh6LXJlcStqd3QifQ...
+```
+
+<Note>
+Requires proper `clientIdentification` configuration with signing keys.
+</Note>
+
+### By Reference (Recommended)
+
+A reference URI is provided to retrieve the request object:
+
+```
+openid4vp://?client_id=did:key:verifier&request_uri=verifier.org/api/v1/request/randomState&request_uri_method=get
+```
+
+<Warning>
+The **byReference** mode is recommended for production as it generates smaller QR codes and reduces URL length limitations.
+</Warning>
+
+## Rate Limiting
+
+Currently, VCVerifier does not implement rate limiting. For production deployments, consider implementing rate limiting at the reverse proxy or API gateway level.
+
+## Security Considerations
+
+<Warning>
+**Important Security Notes:**
+
+- Sessions expire after 30 seconds by default (configurable)
+- All credentials are verified against configured trust anchors
+- The verifier does not currently offer endpoints to prove its own identity
+- Presentation submissions are accepted but not fully evaluated
+- Only the first credential in multi-credential presentations is included in the JWT
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication Flow" icon="diagram-project" href="/api/authentication-flow">
+    Detailed authentication flow with sequence diagrams
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration">
+    Learn how to configure VCVerifier for your use case
+  </Card>
+</CardGroup>

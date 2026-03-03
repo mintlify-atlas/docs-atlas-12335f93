@@ -1,0 +1,346 @@
+---
+title: Compliance Verification
+description: Verify Gaia-X compliance credentials and integrity signatures
+---
+
+VCVerifier supports compliance verification for credentials that are part of a Gaia-X trust framework. This ensures that credentials meet regulatory and technical compliance requirements.
+
+## Overview
+
+Compliance verification validates:
+1. **Compliance credential presence**: A separate compliance credential references the main credential
+2. **Integrity signature**: The hash of the main credential matches the compliance credential's integrity claim
+3. **Gaia-X subject type**: The compliance credential contains the correct Gaia-X subject type
+
+**Source reference:** `verifier/compliance.go`
+
+## How Gaia-X Compliance Works
+
+In Gaia-X ecosystems, credentials are accompanied by compliance credentials issued by authorized compliance services.
+
+### Compliance Credential Structure
+
+A Gaia-X compliance credential contains a `credentialSubject` with type `gx:compliance`:
+
+```json
+{
+  "@context": ["https://www.w3.org/2018/credentials/v1"],
+  "type": ["VerifiableCredential", "GaiaXComplianceCredential"],
+  "issuer": "did:web:compliance.gaia-x.eu",
+  "credentialSubject": {
+    "type": "gx:compliance",
+    "id": "https://example.com/credentials/123",
+    "gx:integrity": "sha256-9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+    "gx:integrityNormalization": "RFC8785",
+    "gx:version": "1.0",
+    "gx:type": "LegalParticipant"
+  }
+}
+```
+
+### Compliance Subject Fields
+
+<ResponseField name="type" type="string" required>
+  Must be `gx:compliance` to indicate this is a compliance subject.
+</ResponseField>
+
+<ResponseField name="id" type="string" required>
+  The identifier of the credential being attested. Must match the main credential's ID.
+</ResponseField>
+
+<ResponseField name="gx:integrity" type="string" required>
+  SHA-256 hash of the canonicalized credential, prefixed with `sha256-`.
+</ResponseField>
+
+<ResponseField name="gx:integrityNormalization" type="string">
+  Normalization method used (typically `RFC8785` for JSON canonicalization).
+</ResponseField>
+
+<ResponseField name="gx:version" type="string">
+  Version of the Gaia-X compliance framework.
+</ResponseField>
+
+<ResponseField name="gx:type" type="string">
+  Type of Gaia-X credential being attested (e.g., `LegalParticipant`, `ServiceOffering`).
+</ResponseField>
+
+## Configuration
+
+Compliance verification is configured per credential type in the scope configuration:
+
+```yaml
+configRepo:
+  services:
+    - id: myService
+      oidcScopes:
+        default:
+          credentials:
+            - type: LegalParticipantCredential
+              compliance:
+                required: true
+```
+
+<Info>
+  Compliance verification is optional. Only credentials explicitly configured with `compliance.required: true` will be checked.
+</Info>
+
+## Verification Process
+
+### Step 1: Extract Compliance Subjects
+
+The verifier searches the presentation for compliance credentials:
+
+```go
+for _, credential := range presentation.Credentials() {
+  subject := credential["credentialSubject"]
+  if subject["type"] == "gx:compliance" {
+    complianceSubjects = append(complianceSubjects, subject)
+  }
+}
+```
+
+### Step 2: Match Credential ID
+
+For each credential requiring compliance, find a compliance subject with matching ID:
+
+```go
+for _, complianceSubject := range complianceSubjects {
+  if complianceSubject.Id == credential.ID {
+    // Found matching compliance credential
+  }
+}
+```
+
+### Step 3: Verify Integrity Signature
+
+The verifier canonicalizes the credential and computes its SHA-256 hash:
+
+**Source reference:** `verifier/compliance.go:52-64`
+
+```go
+func checkSignature(rawCredential []byte, signature string) (bool, error) {
+  // Canonicalize using RFC8785
+  canonicalized, _ := jsoncanonicalizer.Transform(rawCredential)
+  
+  // Compute SHA-256 hash
+  hash := sha256.Sum256(canonicalized)
+  hashHex := "sha256-" + hex.EncodeToString(hash[:])
+  
+  // Compare with compliance signature
+  return hashHex == signature, nil
+}
+```
+
+<Note>
+  The credential is canonicalized using [RFC 8785 JSON Canonicalization](https://www.rfc-editor.org/rfc/rfc8785.html) before hashing to ensure consistent hash values.
+</Note>
+
+## Example Flow
+
+### 1. Main Credential
+
+```json
+{
+  "@context": ["https://www.w3.org/2018/credentials/v1"],
+  "id": "https://example.com/credentials/legal-participant-123",
+  "type": ["VerifiableCredential", "LegalParticipantCredential"],
+  "issuer": "did:web:example.com",
+  "credentialSubject": {
+    "id": "did:web:company.example.com",
+    "gx:legalName": "Example Corp",
+    "gx:legalForm": "LLC"
+  }
+}
+```
+
+### 2. Compliance Credential
+
+```json
+{
+  "@context": ["https://www.w3.org/2018/credentials/v1"],
+  "type": ["VerifiableCredential", "GaiaXComplianceCredential"],
+  "issuer": "did:web:compliance.gaia-x.eu",
+  "credentialSubject": {
+    "type": "gx:compliance",
+    "id": "https://example.com/credentials/legal-participant-123",
+    "gx:integrity": "sha256-abc123def456...",
+    "gx:integrityNormalization": "RFC8785",
+    "gx:type": "LegalParticipant"
+  }
+}
+```
+
+### 3. Presentation
+
+Both credentials must be included in the presentation:
+
+```json
+{
+  "@context": ["https://www.w3.org/2018/credentials/v1"],
+  "type": ["VerifiablePresentation"],
+  "holder": "did:web:company.example.com",
+  "verifiableCredential": [
+    {/* Main credential */},
+    {/* Compliance credential */}
+  ]
+}
+```
+
+## Gaia-X Registry Integration
+
+VCVerifier can also validate issuers against the Gaia-X Digital Clearing House Registry.
+
+### Configuration
+
+```yaml
+verifier:
+  policyConfig:
+    defaultPolicies:
+      GaiaXComplianceIssuer:
+        registryAddress: "https://registry.lab.gaia-x.eu"
+```
+
+**Source reference:** `verifier/gaiax.go:27-48`
+
+### Issuer Validation
+
+The `GaiaXRegistryValidationService` checks if the issuer is in the trusted compliance issuers list:
+
+```go
+func (v *GaiaXRegistryValidationService) ValidateVC(
+  credential *verifiable.Credential,
+  context ValidationContext,
+) (bool, error) {
+  issuerDids, _ := v.gaiaxRegistryClient.GetComplianceIssuers()
+  
+  if slices.Contains(issuerDids, credential.Issuer.ID) {
+    return true, nil
+  }
+  
+  return false, ErrorNoTrustedIssuer
+}
+```
+
+### Credential-Specific Policies
+
+Apply Gaia-X validation to specific credential types:
+
+```yaml
+verifier:
+  policyConfig:
+    credentialTypeSpecificPolicies:
+      LegalParticipantCredential:
+        GaiaXComplianceIssuer:
+          registryAddress: "https://registry.lab.gaia-x.eu"
+      ServiceOfferingCredential:
+        GaiaXComplianceIssuer:
+          registryAddress: "https://registry.lab.gaia-x.eu"
+```
+
+## Error Handling
+
+### No Compliance Credential Found
+
+If compliance is required but no matching compliance credential exists:
+
+```json
+{
+  "error": "invalid_vc",
+  "description": "No compliance subject found for credential"
+}
+```
+
+Log output:
+```
+No compliance subject found for credential ID https://example.com/credentials/123
+```
+
+### Integrity Mismatch
+
+If the computed hash doesn't match the compliance signature:
+
+```json
+{
+  "error": "invalid_vc",
+  "description": "Credential integrity check failed"
+}
+```
+
+Log output:
+```
+The created signature is sha256-abc123... - the signature to test sha256-def456...
+```
+
+### Invalid Subject Type
+
+If the subject type is not `gx:compliance`:
+
+```
+Was not able to convert context. Err: type assertion failed
+```
+
+## Complete Configuration Example
+
+```yaml
+verifier:
+  did: "did:web:verifier.example.com"
+  validationMode: "combined"
+  policyConfig:
+    defaultPolicies:
+      GaiaXComplianceIssuer:
+        registryAddress: "https://registry.lab.gaia-x.eu"
+
+configRepo:
+  services:
+    - id: gaiax-marketplace
+      oidcScopes:
+        participant:
+          credentials:
+            - type: LegalParticipantCredential
+              compliance:
+                required: true
+              trustedIssuersLists:
+                LegalParticipantCredential:
+                  - https://tir.gaia-x.eu
+            
+            - type: ServiceOfferingCredential
+              compliance:
+                required: true
+              trustedIssuersLists:
+                ServiceOfferingCredential:
+                  - https://tir.gaia-x.eu
+```
+
+## Best Practices
+
+1. **Require compliance for sensitive credentials**: Enable compliance verification for credentials with regulatory requirements
+
+2. **Use trusted compliance services**: Only accept compliance credentials from authorized Gaia-X compliance services
+
+3. **Monitor compliance failures**: Track compliance verification failures to identify credential issues early
+
+4. **Document compliance requirements**: Clearly communicate compliance requirements to credential issuers
+
+5. **Keep registries updated**: Regularly sync with the Gaia-X registry to maintain current trusted issuer lists
+
+## Security Considerations
+
+<Warning>
+  Compliance verification does not replace cryptographic proof verification. Both are required for complete security:
+  - **Proof verification**: Ensures the credential hasn't been tampered with
+  - **Compliance verification**: Ensures the credential meets regulatory requirements
+</Warning>
+
+### Integrity Hash Security
+
+The integrity hash provides:
+- **Tamper detection**: Any modification to the credential changes the hash
+- **Attestation binding**: Links the compliance credential to the specific credential version
+- **Non-repudiation**: Compliance service's signature proves their attestation
+
+### Canonicalization Importance
+
+JSON canonicalization ensures:
+- Consistent hashes regardless of formatting
+- Field order doesn't affect validation
+- Whitespace differences don't break verification

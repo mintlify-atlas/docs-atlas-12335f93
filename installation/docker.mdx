@@ -1,0 +1,317 @@
+---
+title: Docker installation
+description: Deploy VCVerifier using Docker containers
+---
+
+## Overview
+
+VCVerifier is provided as a container image and can be run using Docker. The official image is available on Quay.io and supports multi-architecture builds (amd64/arm64).
+
+## Quick start
+
+Run VCVerifier with default configuration:
+
+```bash
+docker run -p 8080:8080 quay.io/fiware/vcverifier
+```
+
+The service will be available at `http://localhost:8080`.
+
+## Configuration
+
+### Environment variables
+
+VCVerifier loads configuration from a YAML file. You can specify a custom configuration file location using the `CONFIG_FILE` environment variable:
+
+```bash
+docker run -p 8080:8080 \
+  -e CONFIG_FILE=/config/custom-config.yaml \
+  -v $(pwd)/config:/config \
+  quay.io/fiware/vcverifier
+```
+
+<Note>
+If `CONFIG_FILE` is not set, the default configuration is loaded from `./server.yaml` in the container's working directory.
+</Note>
+
+### Volume mounts
+
+Mount configuration files and keys into the container:
+
+<CodeGroup>
+
+```bash Basic configuration
+docker run -p 8080:8080 \
+  -v $(pwd)/server.yaml:/app/server.yaml \
+  quay.io/fiware/vcverifier
+```
+
+```bash With custom keys
+docker run -p 8080:8080 \
+  -v $(pwd)/config:/config \
+  -v $(pwd)/keys:/keys \
+  -e CONFIG_FILE=/config/server.yaml \
+  quay.io/fiware/vcverifier
+```
+
+```bash Complete setup
+docker run -p 8080:8080 \
+  -v $(pwd)/config/server.yaml:/app/server.yaml \
+  -v $(pwd)/views:/app/views \
+  -v $(pwd)/keys:/app/keys \
+  -e GIN_MODE=release \
+  quay.io/fiware/vcverifier
+```
+
+</CodeGroup>
+
+## Container details
+
+### Build process
+
+The VCVerifier container is built using a multi-stage Dockerfile:
+
+```dockerfile
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
+
+ARG TARGETOS
+ARG TARGETARCH
+
+WORKDIR /go/src/app
+COPY ./ ./
+
+RUN apk add --no-cache build-base
+RUN go mod download
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="-s -w" -o VCVerifier .
+
+FROM alpine:3.23
+
+LABEL org.opencontainers.image.source="https://github.com/FIWARE/VCVerifier"
+
+WORKDIR /app
+
+COPY --from=build /go/src/app/views ./views
+COPY --from=build /go/src/app/VCVerifier ./VCVerifier
+COPY --from=build /go/src/app/server.yaml ./server.yaml
+
+ENV GIN_MODE=release
+
+CMD ["./VCVerifier"]
+```
+
+### Default environment
+
+- **Base image**: Alpine Linux 3.23
+- **Working directory**: `/app`
+- **Default port**: 8080
+- **Runtime mode**: Release mode (via `GIN_MODE=release`)
+
+## Configuration example
+
+<Steps>
+
+<Step title="Create configuration file">
+
+Create a `server.yaml` file with your configuration:
+
+```yaml server.yaml
+server:
+  port: 8080
+  templateDir: "views/"
+  staticDir: "views/static/"
+
+logging:
+  level: "INFO"
+  jsonLogging: true
+  logRequests: true
+
+verifier:
+  did: did:key:myverifier
+  tirAddress: https://tir.de
+  sessionExpiry: 30
+  generateKey: true
+  supportedModes: ["urlEncoded", "byReference", "byValue"]
+  
+configRepo:
+  configEndpoint: http://config-service:8080
+```
+
+</Step>
+
+<Step title="Run container with configuration">
+
+```bash
+docker run -d \
+  --name vcverifier \
+  -p 8080:8080 \
+  -v $(pwd)/server.yaml:/app/server.yaml \
+  quay.io/fiware/vcverifier
+```
+
+</Step>
+
+<Step title="Verify the service is running">
+
+Check the container logs:
+
+```bash
+docker logs vcverifier
+```
+
+Test the service:
+
+```bash
+curl http://localhost:8080/health
+```
+
+</Step>
+
+</Steps>
+
+## Advanced configuration
+
+### Custom templates
+
+Mount custom HTML templates for the login page:
+
+```bash
+docker run -p 8080:8080 \
+  -v $(pwd)/custom-views:/app/views \
+  -v $(pwd)/static-content:/app/views/static \
+  quay.io/fiware/vcverifier
+```
+
+<Note>
+The template directory must contain a `verifier_present_qr.html` file that includes the QR code via `<img src="data:{{.qrcode}}"/>`.
+</Note>
+
+### Using private keys
+
+When not using `generateKey: true`, mount your private key file:
+
+```yaml server.yaml
+verifier:
+  generateKey: false
+  keyPath: /keys/private-key.pem
+  keyAlgorithm: RS256
+```
+
+```bash
+docker run -p 8080:8080 \
+  -v $(pwd)/server.yaml:/app/server.yaml \
+  -v $(pwd)/keys:/keys \
+  quay.io/fiware/vcverifier
+```
+
+### Networking with other services
+
+Connect VCVerifier to other services using Docker networks:
+
+```bash
+# Create a network
+docker network create vc-network
+
+# Run config service
+docker run -d \
+  --name config-service \
+  --network vc-network \
+  your-config-service:latest
+
+# Run VCVerifier
+docker run -d \
+  --name vcverifier \
+  --network vc-network \
+  -p 8080:8080 \
+  -v $(pwd)/server.yaml:/app/server.yaml \
+  quay.io/fiware/vcverifier
+```
+
+## Health checks
+
+Add health checks to your Docker deployment:
+
+```bash
+docker run -d \
+  --name vcverifier \
+  -p 8080:8080 \
+  --health-cmd="wget -q --spider http://localhost:8080/health || exit 1" \
+  --health-interval=30s \
+  --health-timeout=10s \
+  --health-retries=3 \
+  quay.io/fiware/vcverifier
+```
+
+## Docker Compose
+
+For a complete setup with multiple services:
+
+```yaml docker-compose.yml
+version: '3.8'
+
+services:
+  vcverifier:
+    image: quay.io/fiware/vcverifier
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config/server.yaml:/app/server.yaml
+      - ./keys:/app/keys
+    environment:
+      - GIN_MODE=release
+    networks:
+      - vc-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  config-service:
+    image: quay.io/fiware/credentials-config-service
+    ports:
+      - "8081:8080"
+    networks:
+      - vc-network
+    restart: unless-stopped
+
+networks:
+  vc-network:
+    driver: bridge
+```
+
+<Warning>
+Ensure your `server.yaml` references services by their Docker service names when using Docker Compose (e.g., `http://config-service:8080`).
+</Warning>
+
+## Troubleshooting
+
+### Container won't start
+
+Check the logs for configuration errors:
+
+```bash
+docker logs vcverifier
+```
+
+### Port already in use
+
+Change the host port mapping:
+
+```bash
+docker run -p 9090:8080 quay.io/fiware/vcverifier
+```
+
+### Configuration not loading
+
+Verify the volume mount is correct:
+
+```bash
+docker exec vcverifier ls -la /app/server.yaml
+```
+
+## Next steps
+
+- Configure [trusted issuers registries](/trust-anchors/overview)
+- Set up [authentication modes](/integration/request-modes)
+- Integrate with [OIDC4VP flows](/integration/frontend)

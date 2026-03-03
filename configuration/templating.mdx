@@ -1,0 +1,418 @@
+---
+title: Template Customization
+description: Customize the VCVerifier login page and QR code presentation
+---
+
+## Overview
+
+VCVerifier provides a customizable login page at `/api/v1/loginQR` that displays a QR code for wallet-based authentication. You can customize the appearance and behavior by providing custom HTML templates and static assets.
+
+## Template Directory Structure
+
+Templates and static files are organized as follows:
+
+```
+views/
+├── verifier_present_qr.html    # Main login template (required)
+└── static/                      # Static assets directory
+    ├── css/
+    │   └── styles.css
+    ├── js/
+    │   └── app.js
+    └── images/
+        └── logo.png
+```
+
+## Configuration
+
+Configure the template and static directories in your `server.yaml`:
+
+```yaml
+server:
+  templateDir: "views/"        # Directory containing templates
+  staticDir: "views/static/"   # Directory for static assets
+```
+
+<Note>
+  The `templateDir` must contain a file named `verifier_present_qr.html` which will be rendered when users access the login page.
+</Note>
+
+## Required Template File
+
+### verifier_present_qr.html
+
+This template is rendered at `/api/v1/loginQR` and must include the QR code image.
+
+**Minimum Required Template**:
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Login with Wallet</title>
+</head>
+<body>
+    <h1>Scan QR Code to Login</h1>
+    
+    <!-- Required: QR code image -->
+    <img src="data:{{.qrcode}}" alt="Login QR Code" />
+    
+</body>
+</html>
+```
+
+<ParamField path="{{.qrcode}}" type="string" required>
+  Data URI containing the QR code image. This must be included in the template using the exact syntax shown above.
+</ParamField>
+
+## Template Variables
+
+The following variables are available in the template context:
+
+<ParamField path="{{.qrcode}}" type="string">
+  Base64-encoded data URI of the QR code image. Use as: `<img src="data:{{.qrcode}}" />`
+</ParamField>
+
+<Note>
+  VCVerifier uses the [goview framework](https://github.com/foolin/goview) for template rendering, which supports Go's standard `html/template` syntax.
+</Note>
+
+## Static Assets
+
+Static files in the `staticDir` are served at the `/static` path.
+
+### Example Directory Structure
+
+```
+views/static/
+├── css/
+│   └── login.css
+├── js/
+│   └── qr-refresh.js
+└── images/
+    ├── logo.png
+    └── background.svg
+```
+
+### Accessing Static Files
+
+Reference static files in your templates using the `/static` prefix:
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="/static/css/login.css">
+    <script src="/static/js/qr-refresh.js"></script>
+</head>
+<body>
+    <img src="/static/images/logo.png" alt="Logo" class="logo" />
+    <img src="data:{{.qrcode}}" alt="QR Code" />
+</body>
+</html>
+```
+
+## Complete Example
+
+Here's a complete example with styling and branding:
+
+<CodeGroup>
+```html verifier_present_qr.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Login</title>
+    <link rel="stylesheet" href="/static/css/login.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <img src="/static/images/logo.png" alt="Company Logo" class="logo" />
+            <h1>Secure Wallet Login</h1>
+        </header>
+        
+        <main>
+            <div class="qr-container">
+                <img src="data:{{.qrcode}}" alt="Login QR Code" class="qr-code" />
+            </div>
+            
+            <div class="instructions">
+                <h2>How to Login</h2>
+                <ol>
+                    <li>Open your wallet app</li>
+                    <li>Scan the QR code above</li>
+                    <li>Approve the authentication request</li>
+                </ol>
+            </div>
+        </main>
+        
+        <footer>
+            <p>Powered by VCVerifier</p>
+        </footer>
+    </div>
+    
+    <script src="/static/js/login.js"></script>
+</body>
+</html>
+```
+
+```css static/css/login.css
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    margin: 0;
+    padding: 20px;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.container {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    max-width: 500px;
+    width: 100%;
+    padding: 40px;
+    text-align: center;
+}
+
+.logo {
+    max-width: 150px;
+    margin-bottom: 20px;
+}
+
+h1 {
+    color: #333;
+    margin-bottom: 30px;
+    font-size: 28px;
+}
+
+.qr-container {
+    background: #f8f9fa;
+    border-radius: 12px;
+    padding: 30px;
+    margin: 30px 0;
+}
+
+.qr-code {
+    max-width: 100%;
+    height: auto;
+    border: 4px solid white;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.instructions {
+    text-align: left;
+    margin-top: 30px;
+}
+
+.instructions h2 {
+    color: #555;
+    font-size: 18px;
+    margin-bottom: 15px;
+}
+
+.instructions ol {
+    color: #666;
+    line-height: 1.8;
+}
+
+footer {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+    color: #999;
+    font-size: 14px;
+}
+```
+
+```javascript static/js/login.js
+// Auto-refresh QR code if needed
+(function() {
+    // Add any dynamic behavior here
+    // For example, polling for authentication status
+    
+    console.log('VCVerifier login page loaded');
+})();
+```
+</CodeGroup>
+
+## Advanced Templating
+
+VCVerifier uses Go's `html/template` engine, which supports:
+
+<Accordion title="Conditional Rendering">
+```html
+{{if .someVariable}}
+    <p>Variable is present</p>
+{{else}}
+    <p>Variable is missing</p>
+{{end}}
+```
+</Accordion>
+
+<Accordion title="Template Functions">
+Standard Go template functions are available:
+- `{{printf}}` - Formatted printing
+- `{{html}}` - HTML escaping
+- `{{js}}` - JavaScript escaping
+- `{{urlquery}}` - URL query escaping
+
+```html
+<p>{{printf "Welcome to %s" "VCVerifier"}}</p>
+```
+</Accordion>
+
+<Accordion title="Template Partials">
+You can include other templates (if they exist in `templateDir`):
+```html
+{{template "header.html" .}}
+
+<img src="data:{{.qrcode}}" />
+
+{{template "footer.html" .}}
+```
+</Accordion>
+
+## Mobile Responsive Design
+
+Ensure your template works well on mobile devices:
+
+```html
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+            }
+            
+            .qr-code {
+                max-width: 250px;
+            }
+        }
+    </style>
+</head>
+```
+
+## Testing Your Templates
+
+<Steps>
+  <Step title="Create Template Directory">
+    ```bash
+    mkdir -p views/static/css
+    mkdir -p views/static/js
+    mkdir -p views/static/images
+    ```
+  </Step>
+  
+  <Step title="Add Template File">
+    Create `views/verifier_present_qr.html` with your custom HTML
+  </Step>
+  
+  <Step title="Add Static Assets">
+    Place CSS, JavaScript, and images in the `static/` subdirectories
+  </Step>
+  
+  <Step title="Update Configuration">
+    ```yaml
+    server:
+      templateDir: "views/"
+      staticDir: "views/static/"
+    ```
+  </Step>
+  
+  <Step title="Restart VCVerifier">
+    Restart the service to load the new templates
+  </Step>
+  
+  <Step title="Test Login Page">
+    Navigate to `/api/v1/loginQR?state=test&client_callback=http://example.com`
+  </Step>
+</Steps>
+
+## Common Use Cases
+
+<AccordionGroup>
+  <Accordion title="Adding Company Branding">
+    ```html
+    <header>
+      <img src="/static/images/company-logo.png" alt="Company" />
+      <h1>{{.companyName}} Secure Login</h1>
+    </header>
+    ```
+  </Accordion>
+  
+  <Accordion title="Dark Mode Support">
+    ```css
+    @media (prefers-color-scheme: dark) {
+      body {
+        background: #1a1a1a;
+        color: #fff;
+      }
+      
+      .container {
+        background: #2d2d2d;
+      }
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Localization">
+    Create different template files and switch based on user preference:
+    ```yaml
+    server:
+      templateDir: "views/en/"  # or views/es/, views/de/, etc.
+    ```
+  </Accordion>
+  
+  <Accordion title="Custom Loading Animation">
+    ```html
+    <div class="qr-container">
+      <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <p>Generating QR Code...</p>
+      </div>
+      <img src="data:{{.qrcode}}" 
+           alt="QR Code" 
+           onload="document.getElementById('loading').style.display='none'" />
+    </div>
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<Warning>
+  **Common Issues**:
+  
+  1. **Template not found**: Ensure `verifier_present_qr.html` exists in the `templateDir`
+  2. **Static files 404**: Verify `staticDir` path is correct and files are in the right location
+  3. **QR code not displaying**: Check that you're using `<img src="data:{{.qrcode}}" />` exactly as shown
+  4. **Template syntax errors**: Validate your Go template syntax
+</Warning>
+
+## Security Considerations
+
+<Note>
+  - Always escape user input in templates
+  - Use HTTPS in production to protect QR code content
+  - Don't include sensitive information in static files
+  - Implement Content Security Policy headers
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="API Reference" icon="code" href="/api-reference">
+    Learn about the loginQR endpoint parameters
+  </Card>
+  <Card title="Frontend Integration" icon="browser" href="/integration/frontend">
+    Integrate the login page into your application
+  </Card>
+</CardGroup>

@@ -1,0 +1,320 @@
+---
+title: OpenID Configuration
+description: Discover OpenID Provider metadata for a service
+---
+
+The OpenID Configuration endpoint provides metadata about the OpenID Connect Provider, including supported endpoints, capabilities, and configuration parameters. This follows the [OpenID Connect Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0.html) specification.
+
+## Endpoint
+
+```
+GET /services/{service_id}/.well-known/openid-configuration
+```
+
+## Path Parameters
+
+<ResponseField name="service_id" type="string" required>
+  The ID of the client/service. This identifies which service configuration to retrieve.
+  
+  **Example:** `packet-delivery-portal`
+</ResponseField>
+
+## Overview
+
+This endpoint returns the OpenID Provider metadata for a specific service, allowing clients to discover the configuration and capabilities of the authorization server dynamically. This eliminates the need for hard-coding endpoint URLs and supported features.
+
+<Note>
+The OpenID Configuration endpoint is publicly accessible and does not require authentication. It's designed to enable automatic discovery of the provider's capabilities.
+</Note>
+
+## Response
+
+The endpoint returns an OpenID Provider Metadata object conforming to the OpenID Connect Discovery specification.
+
+### Response Schema
+
+<ResponseField name="issuer" type="string" required>
+  The issuer identifier URL. This must be identical to the value used in issued tokens.
+  
+  **Example:** `https://api-test.ebsi.eu/authorisation/v4`
+</ResponseField>
+
+<ResponseField name="authorization_endpoint" type="string" required>
+  URL of the OAuth 2.0 Authorization Endpoint where authorization requests are sent.
+  
+  **Example:** `https://api-test.ebsi.eu/authorisation/v4/authorize`
+</ResponseField>
+
+<ResponseField name="token_endpoint" type="string" required>
+  URL of the OAuth 2.0 Token Endpoint where token requests are sent.
+  
+  **Example:** `https://api-test.ebsi.eu/authorisation/v4/token`
+</ResponseField>
+
+<ResponseField name="presentation_definition_endpoint" type="string">
+  URL of the endpoint that provides presentation definitions for credential verification.
+  
+  **Example:** `https://api-test.ebsi.eu/authorisation/v4/presentation-definitions`
+</ResponseField>
+
+<ResponseField name="jwks_uri" type="string" required>
+  URL of the JSON Web Key Set (JWKS) endpoint containing the provider's public keys.
+  
+  **Example:** `https://api-test.ebsi.eu/authorisation/v4/jwks`
+</ResponseField>
+
+<ResponseField name="scopes_supported" type="array" required>
+  Array of OAuth 2.0 scope values that this server supports.
+  
+  **Example:** `["openid", "didr_invite", "didr_write", "tir_invite", "tir_write"]`
+</ResponseField>
+
+<ResponseField name="response_types_supported" type="array" required>
+  Array of OAuth 2.0 response_type values that this server supports.
+  
+  **Example:** `["token", "code"]`
+</ResponseField>
+
+<ResponseField name="response_mode_supported" type="array">
+  Array of OAuth 2.0 response_mode values that this server supports.
+  
+  **Example:** `["query", "fragment"]`
+</ResponseField>
+
+<ResponseField name="grant_types_supported" type="array">
+  Array of OAuth 2.0 grant type values that this server supports.
+  
+  **Example:** `["vp_token", "authorization_code"]`
+</ResponseField>
+
+<ResponseField name="subject_types_supported" type="array" required>
+  Array of Subject Identifier types that this server supports.
+  
+  **Example:** `["public"]`
+</ResponseField>
+
+<ResponseField name="id_token_signing_alg_values_supported" type="array" required>
+  Array of JWS signing algorithms (alg values) supported for ID Tokens.
+  
+  **Example:** `["ES256", "RS256"]`
+</ResponseField>
+
+<ResponseField name="request_object_signing_alg_values_supported" type="array">
+  Array of JWS signing algorithms (alg values) supported for Request Objects.
+  
+  **Example:** `["ES256", "RS256"]`
+</ResponseField>
+
+<ResponseField name="request_parameter_supported" type="boolean">
+  Boolean value indicating whether the provider supports use of the `request` parameter.
+  
+  **Example:** `true`
+</ResponseField>
+
+<ResponseField name="token_endpoint_auth_methods_supported" type="array">
+  Array of client authentication methods supported by the token endpoint.
+  
+  **Example:** `["private_key_jwt", "client_secret_basic"]`
+</ResponseField>
+
+## Response Examples
+
+<CodeGroup>
+
+```json Complete Example
+{
+  "issuer": "https://api-test.ebsi.eu/authorisation/v4",
+  "authorization_endpoint": "https://api-test.ebsi.eu/authorisation/v4/authorize",
+  "token_endpoint": "https://api-test.ebsi.eu/authorisation/v4/token",
+  "presentation_definition_endpoint": "https://api-test.ebsi.eu/authorisation/v4/presentation-definitions",
+  "jwks_uri": "https://api-test.ebsi.eu/authorisation/v4/jwks",
+  "scopes_supported": [
+    "openid",
+    "didr_invite",
+    "didr_write",
+    "tir_invite",
+    "tir_write"
+  ],
+  "response_types_supported": [
+    "token",
+    "code"
+  ],
+  "response_mode_supported": [
+    "query",
+    "fragment"
+  ],
+  "grant_types_supported": [
+    "vp_token",
+    "authorization_code",
+    "urn:ietf:params:oauth:grant-type:token-exchange"
+  ],
+  "subject_types_supported": [
+    "public"
+  ],
+  "id_token_signing_alg_values_supported": [
+    "ES256"
+  ],
+  "request_object_signing_alg_values_supported": [
+    "ES256"
+  ],
+  "request_parameter_supported": true,
+  "token_endpoint_auth_methods_supported": [
+    "private_key_jwt"
+  ]
+}
+```
+
+```json Minimal Configuration
+{
+  "issuer": "https://verifier.example.com/services/my-service",
+  "authorization_endpoint": "https://verifier.example.com/api/v1/authorization",
+  "token_endpoint": "https://verifier.example.com/services/my-service/token",
+  "jwks_uri": "https://verifier.example.com/.well-known/jwks",
+  "scopes_supported": [
+    "openid"
+  ],
+  "response_types_supported": [
+    "code"
+  ],
+  "subject_types_supported": [
+    "public"
+  ],
+  "id_token_signing_alg_values_supported": [
+    "ES256"
+  ]
+}
+```
+
+```bash cURL Request
+curl -X GET https://verifier.example.com/services/packet-delivery-portal/.well-known/openid-configuration
+```
+
+</CodeGroup>
+
+## Service-Specific Configuration
+
+Each service registered with the VCVerifier can have its own OpenID configuration. The `service_id` path parameter determines which service's configuration is returned.
+
+<Note>
+Make sure to use the correct `service_id` that matches your registered service. Using an invalid service ID will result in an error.
+</Note>
+
+## Grant Types
+
+The VCVerifier supports several OAuth 2.0 grant types:
+
+### Verifiable Presentation Token
+
+```json
+"grant_types_supported": ["vp_token"]
+```
+
+Allows clients to exchange verifiable presentation tokens for access tokens. This is specific to verifiable credential flows.
+
+### Authorization Code
+
+```json
+"grant_types_supported": ["authorization_code"]
+```
+
+Standard OAuth 2.0 authorization code flow for exchanging authorization codes for tokens.
+
+### Token Exchange
+
+```json
+"grant_types_supported": ["urn:ietf:params:oauth:grant-type:token-exchange"]
+```
+
+Supports OAuth 2.0 Token Exchange ([RFC 8693](https://tools.ietf.org/html/rfc8693)) for exchanging one token for another.
+
+## Usage Pattern
+
+Clients should fetch the OpenID Configuration at startup or cache it appropriately:
+
+<CodeGroup>
+
+```javascript JavaScript Example
+const serviceId = 'packet-delivery-portal';
+const configUrl = `https://verifier.example.com/services/${serviceId}/.well-known/openid-configuration`;
+
+const response = await fetch(configUrl);
+const config = await response.json();
+
+// Use the discovered endpoints
+const authEndpoint = config.authorization_endpoint;
+const tokenEndpoint = config.token_endpoint;
+const jwksUri = config.jwks_uri;
+
+console.log('Configured endpoints:', {
+  authorization: authEndpoint,
+  token: tokenEndpoint,
+  jwks: jwksUri
+});
+```
+
+```python Python Example
+import requests
+
+service_id = 'packet-delivery-portal'
+config_url = f'https://verifier.example.com/services/{service_id}/.well-known/openid-configuration'
+
+response = requests.get(config_url)
+config = response.json()
+
+# Use the discovered endpoints
+auth_endpoint = config['authorization_endpoint']
+token_endpoint = config['token_endpoint']
+jwks_uri = config['jwks_uri']
+
+print(f"Authorization Endpoint: {auth_endpoint}")
+print(f"Token Endpoint: {token_endpoint}")
+print(f"JWKS URI: {jwks_uri}")
+```
+
+```go Go Example
+import (
+    "encoding/json"
+    "fmt"
+    "net/http"
+    "github.com/fiware/VCVerifier/common"
+)
+
+serviceID := "packet-delivery-portal"
+configURL := fmt.Sprintf("https://verifier.example.com/services/%s/.well-known/openid-configuration", serviceID)
+
+resp, _ := http.Get(configURL)
+var config common.OpenIDProviderMetadata
+json.NewDecoder(resp.Body).Decode(&config)
+
+// Use the discovered endpoints
+fmt.Println("Issuer:", config.Issuer)
+fmt.Println("Auth Endpoint:", config.AuthorizationEndpoint)
+fmt.Println("Token Endpoint:", config.TokenEndpoint)
+```
+
+</CodeGroup>
+
+## Error Responses
+
+If the service ID is not found or configuration generation fails:
+
+```json
+{
+  "summary": "service_not_found",
+  "details": "The requested service configuration does not exist."
+}
+```
+
+## Related Endpoints
+
+- [JWKS Endpoint](/api/jwks) - Retrieve public keys for JWT verification
+- [Authorization Endpoint](/api/authorization) - Start the authorization flow
+- [Token Endpoint](/api/token) - Exchange codes for access tokens
+
+## Standards Compliance
+
+This endpoint implements:
+
+- [OpenID Connect Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0.html)
+- [RFC 8414 - OAuth 2.0 Authorization Server Metadata](https://tools.ietf.org/html/rfc8414)
+- [OpenID for Verifiable Presentations](https://openid.net/specs/openid-4-verifiable-presentations-1_0.html)

@@ -1,0 +1,485 @@
+---
+title: Local development setup
+description: Set up VCVerifier for local development and testing
+---
+
+## Overview
+
+For local development and testing, VCVerifier requires integration with other components such as a Trusted Issuers Registry and credential issuers. The recommended approach is to use the VC-Integration-Test repository, which provides a complete ecosystem for testing Verifiable Credentials flows.
+
+<Warning>
+VCVerifier cannot be run in complete isolation as it depends on external services like Trusted Issuers Registries and credential issuers. Use the VC-Integration-Test setup for a working environment.
+</Warning>
+
+## Using VC-Integration-Test
+
+The [VC-Integration-Test](https://github.com/fiware/VC-Integration-Test) repository provides an extensive setup of various components participating in SIOP-2/OIDC4VP flows.
+
+### Prerequisites
+
+- Java 11 or higher
+- Maven 3.6+
+- Git
+- Docker (for containerized services)
+
+### Quick start
+
+<Steps>
+
+<Step title="Clone the repository">
+
+```bash
+git clone git@github.com:fiware/VC-Integration-Test.git
+cd VC-Integration-Test/
+```
+
+</Step>
+
+<Step title="Run the development environment">
+
+Start all services including VCVerifier:
+
+```bash
+mvn clean integration-test -Pdev
+```
+
+This command will:
+- Download and configure all required services
+- Start VCVerifier with test configuration
+- Set up a Trusted Issuers Registry
+- Configure credential issuers
+- Initialize test wallets
+
+</Step>
+
+<Step title="Access the services">
+
+Once started, the services are available at:
+
+- **VCVerifier**: http://localhost:8080
+- **Configuration endpoints**: Check the VC-Integration-Test documentation for other service URLs
+
+</Step>
+
+</Steps>
+
+<Note>
+Refer to the [VC-Integration-Test documentation](https://github.com/fiware/VC-Integration-Test) for detailed configuration options and troubleshooting.
+</Note>
+
+## Manual local development
+
+If you need to develop VCVerifier independently, follow these steps:
+
+### Prerequisites
+
+- Go 1.26 or higher
+- Git
+
+### Building from source
+
+<Steps>
+
+<Step title="Clone the repository">
+
+```bash
+git clone https://github.com/FIWARE/VCVerifier.git
+cd VCVerifier
+```
+
+</Step>
+
+<Step title="Install dependencies">
+
+```bash
+go mod download
+```
+
+</Step>
+
+<Step title="Build the application">
+
+```bash
+go build -o VCVerifier .
+```
+
+</Step>
+
+</Steps>
+
+### Configuration for local development
+
+Create a `server.yaml` configuration file:
+
+```yaml server.yaml
+server:
+  port: 8080
+  templateDir: "views/"
+  staticDir: "views/static/"
+
+logging:
+  level: "DEBUG"
+  jsonLogging: false
+  logRequests: true
+
+verifier:
+  # Use a test DID for local development
+  did: did:key:z6MkigCEnopwujz8Ten2dzq91nvMjqbKQYcifuZhqBsEkH7g
+  
+  # Generate key on startup for development
+  generateKey: true
+  keyAlgorithm: RS256
+  
+  # Session configuration
+  sessionExpiry: 300
+  
+  # Support all request modes
+  supportedModes:
+    - urlEncoded
+    - byReference
+    - byValue
+  
+  # Validation mode
+  validationMode: none
+  
+  # Client identification (optional for basic testing)
+  clientIdentification:
+    id: did:key:z6MkigCEnopwujz8Ten2dzq91nvMjqbKQYcifuZhqBsEkH7g
+
+# Static configuration for testing
+configRepo:
+  services:
+    - id: testService
+      defaultOidcScope: "default"
+      oidcScopes:
+        default:
+          credentials:
+            - type: CustomerCredential
+              trustedParticipantsLists:
+                VerifiableCredential:
+                  - https://tir-pdc.ebsi.fiware.dev
+                CustomerCredential:
+                  - https://tir-pdc.ebsi.fiware.dev
+              trustedIssuersLists:
+                VerifiableCredential:
+                  - https://tir-pdc.ebsi.fiware.dev
+                CustomerCredential:
+                  - https://tir-pdc.ebsi.fiware.dev
+              holderVerification:
+                enabled: true
+                claim: subject
+          presentationDefinition:
+            id: test-presentation
+            input_descriptors:
+              - id: customer-credential
+                constraints:
+                  fields:
+                    - id: credential-type
+                      path:
+                        - $.vct
+                      filter:
+                        const: "CustomerCredential"
+                format:
+                  'sd+jwt-vc':
+                    alg: ES256
+```
+
+### Running locally
+
+<CodeGroup>
+
+```bash Default configuration
+./VCVerifier
+```
+
+```bash Custom configuration
+CONFIG_FILE=./custom-config.yaml ./VCVerifier
+```
+
+```bash Debug mode
+GIN_MODE=debug ./VCVerifier
+```
+
+</CodeGroup>
+
+## Development with hot reload
+
+For faster development with automatic reloading:
+
+<Steps>
+
+<Step title="Install Air">
+
+```bash
+go install github.com/cosmtrek/air@latest
+```
+
+</Step>
+
+<Step title="Create Air configuration">
+
+Create `.air.toml`:
+
+```toml .air.toml
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  bin = "./tmp/VCVerifier"
+  cmd = "go build -o ./tmp/VCVerifier ."
+  delay = 1000
+  exclude_dir = ["tmp", "vendor", "views"]
+  include_ext = ["go", "yaml"]
+  
+[log]
+  time = true
+```
+
+</Step>
+
+<Step title="Run with hot reload">
+
+```bash
+air
+```
+
+</Step>
+
+</Steps>
+
+## Testing the local setup
+
+### Health check
+
+Verify the service is running:
+
+```bash
+curl http://localhost:8080/health
+```
+
+### Test same-device flow
+
+Initiate a same-device authentication flow:
+
+```bash
+curl -X GET 'http://localhost:8080/api/v1/samedevice?state=test-state-123'
+```
+
+This will return a redirect with authentication parameters.
+
+### Test QR login page
+
+Access the login page with QR code:
+
+```bash
+curl 'http://localhost:8080/api/v1/loginQR?state=test-state&client_callback=http://localhost:3000/callback'
+```
+
+### Retrieve JWKS
+
+Check the JSON Web Key Set:
+
+```bash
+curl http://localhost:8080/services/testService/.well-known/jwks
+```
+
+## Development with mock services
+
+For testing without external dependencies, you can mock the required services:
+
+### Mock Trusted Issuers Registry
+
+Create a simple mock TIR endpoint:
+
+```go mock-tir/main.go
+package main
+
+import (
+    "encoding/json"
+    "net/http"
+)
+
+type Issuer struct {
+    DID        string   `json:"did"`
+    Attributes []string `json:"attributes"`
+}
+
+func main() {
+    http.HandleFunc("/v3/issuers", func(w http.ResponseWriter, r *http.Request) {
+        issuers := []Issuer{
+            {
+                DID:        "did:key:test-issuer",
+                Attributes: []string{"CustomerCredential"},
+            },
+        }
+        json.NewEncoder(w).Encode(issuers)
+    })
+    
+    http.ListenAndServe(":8081", nil)
+}
+```
+
+Update your configuration to use the mock:
+
+```yaml
+configRepo:
+  services:
+    - id: testService
+      oidcScopes:
+        default:
+          credentials:
+            - type: CustomerCredential
+              trustedIssuersLists:
+                CustomerCredential:
+                  - http://localhost:8081/v3/issuers
+```
+
+## Running unit tests
+
+Run the VCVerifier test suite:
+
+```bash
+# Run all tests
+go test ./...
+
+# Run with coverage
+go test -cover ./...
+
+# Run with verbose output
+go test -v ./...
+
+# Run specific test
+go test -run TestVerificationFlow ./...
+```
+
+## Debugging
+
+### Enable debug logging
+
+Set debug level in your configuration:
+
+```yaml
+logging:
+  level: "DEBUG"
+  jsonLogging: false
+  logRequests: true
+```
+
+### Use Delve debugger
+
+Install and use Delve for debugging:
+
+```bash
+# Install Delve
+go install github.com/go-delve/delve/cmd/dlv@latest
+
+# Debug the application
+dlv debug
+
+# Or attach to running process
+dlv attach <pid>
+```
+
+### View detailed request logs
+
+Enable request logging and exclude health checks:
+
+```yaml
+logging:
+  logRequests: true
+  pathsToSkip:
+    - /health
+```
+
+## Customizing templates
+
+Develop custom login page templates:
+
+<Steps>
+
+<Step title="Copy default templates">
+
+```bash
+cp -r views/ custom-views/
+```
+
+</Step>
+
+<Step title="Edit the QR page template">
+
+Modify `custom-views/verifier_present_qr.html`:
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>VCVerifier Login</title>
+    <style>
+        /* Your custom styles */
+    </style>
+</head>
+<body>
+    <h1>Scan QR Code to Login</h1>
+    <img src="data:{{.qrcode}}" alt="QR Code"/>
+    <!-- Add your custom elements -->
+</body>
+</html>
+```
+
+</Step>
+
+<Step title="Update configuration">
+
+```yaml
+server:
+  templateDir: "custom-views/"
+  staticDir: "custom-views/static/"
+```
+
+</Step>
+
+</Steps>
+
+## Environment variables reference
+
+| Variable | Description | Default |
+|----------|-------------|----------|
+| `CONFIG_FILE` | Path to configuration file | `./server.yaml` |
+| `GIN_MODE` | Gin framework mode (debug/release) | `release` |
+
+## Common issues
+
+### Port already in use
+
+Change the port in your configuration:
+
+```yaml
+server:
+  port: 9090
+```
+
+### Missing views directory
+
+Ensure the views directory exists:
+
+```bash
+mkdir -p views/static
+# Copy default templates from repository
+```
+
+### Configuration not loading
+
+Verify the configuration file path:
+
+```bash
+ls -la ./server.yaml
+# Or use explicit path
+export CONFIG_FILE=/full/path/to/server.yaml
+```
+
+## Next steps
+
+- Explore the [API documentation](/api/overview)
+- Learn about [configuration options](/configuration/overview)
+- Understand [authentication flows](/api/authentication-flow)
+- Review [integration guides](/integration/frontend)

@@ -1,0 +1,611 @@
+---
+title: Request Modes
+description: Understand the three request modes supported by VCVerifier for different wallet compatibility scenarios
+---
+
+## Overview
+
+VCVerifier supports three different modes for transmitting authentication requests to wallets, following the [RFC9101](https://www.rfc-editor.org/rfc/rfc9101.html) standard for request objects. Each mode has different use cases, security characteristics, and wallet compatibility.
+
+The three request modes are:
+
+<CardGroup cols={3}>
+  <Card title="urlEncoded" icon="link">
+    Parameters passed directly in the URL
+  </Card>
+  
+  <Card title="byValue" icon="file-code">
+    Signed JWT request object embedded in URL
+  </Card>
+  
+  <Card title="byReference" icon="arrow-pointer">
+    Reference to a JWT request object hosted by verifier
+  </Card>
+</CardGroup>
+
+## Configuration
+
+Enable and configure request modes in your `server.yaml`:
+
+```yaml
+verifier:
+  # Supported request modes
+  supportedModes: ["urlEncoded", "byReference", "byValue"]
+  
+  # Client identification for signing (required for byValue and byReference)
+  clientIdentification:
+    # Identification used by verifier (DID or x509_san_dns)
+    id: "did:key:z6MkigCEnopwujz8Ten2dzq91nvMjqbKQYcifuZhqBsEkH7g"
+    # Path to signing key in PEM format
+    keyPath: "/path/to/signing-key.pem"
+    # Signing algorithm (must match the key)
+    requestKeyAlgorithm: "ES256"
+    # Certificate path (required for x509_san_dns)
+    certificatePath: "/path/to/cert.pem"
+    # Key ID (optional, uses 'id' if not provided)
+    kid: "my-key-id"
+```
+
+<Note>
+  The `clientIdentification` configuration is **required** for `byValue` and `byReference` modes, as these modes sign the request object as a JWT.
+</Note>
+
+## Mode 1: urlEncoded
+
+### Description
+
+The simplest mode where all authentication parameters are passed directly in the URL as query parameters. No signing or request object creation is involved.
+
+### Example
+
+```
+openid4vp://?response_type=vp_token&response_mode=direct_post&client_id=did:key:verifier&redirect_uri=https://verifier.org/api/v1/authentication_response&state=randomState&nonce=randomNonce
+```
+
+### Usage
+
+Specify `request_mode=urlEncoded` when initiating authentication:
+
+<CodeGroup>
+
+```bash cURL
+curl -X 'GET' \
+  'http://localhost:8080/api/v1/samedevice?state=274e7465-cc9d-4cad-b75f-190db927e56a&request_mode=urlEncoded'
+```
+
+```javascript JavaScript
+const params = new URLSearchParams({
+  state: crypto.randomUUID(),
+  request_mode: 'urlEncoded',
+  client_id: 'my-app'
+});
+
+window.location.href = `https://verifier.example.com/api/v1/loginQR?${params}`;
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    'https://verifier.example.com/api/v1/samedevice',
+    params={
+        'state': '274e7465-cc9d-4cad-b75f-190db927e56a',
+        'request_mode': 'urlEncoded'
+    },
+    allow_redirects=False
+)
+```
+
+</CodeGroup>
+
+### Characteristics
+
+<Tabs>
+  <Tab title="Advantages">
+    - **Simple** - No JWT signing required
+    - **Fast** - No additional HTTP requests
+    - **Compatible** - Works with basic wallet implementations
+    - **Transparent** - All parameters visible in URL
+  </Tab>
+  
+  <Tab title="Disadvantages">
+    - **Size limited** - URL length restrictions
+    - **No integrity** - Parameters can be modified
+    - **Not suitable** for complex presentation definitions
+    - **Less secure** - No cryptographic binding to verifier
+  </Tab>
+</Tabs>
+
+### When to Use
+
+<Check>
+  Use `urlEncoded` when:
+  - Working with simple credential requests
+  - Testing or development environments
+  - Wallet doesn't support signed requests
+  - No clientIdentification configured
+</Check>
+
+## Mode 2: byValue
+
+### Description
+
+The request parameters are encoded as a signed JWT and embedded directly in the URL. The JWT is signed by the verifier, providing cryptographic proof of the request's authenticity.
+
+### Example
+
+```
+openid4vp://?client_id=did:key:verifier&request=eyJhbGciOiJFUzI1NiIsInR5cCI6Im9hdXRoLWF1dGh6LXJlcStqd3QifQ.eyJjbGllbnRfaWQiOiJkaWQ6a2V5OnZlcmlmaWVyIiwiZXhwIjozMCwiaXNzIjoiZGlkOmtleTp2ZXJpZmllciIsIm5vbmNlIjoicmFuZG9tTm9uY2UiLCJwcmVzZW50YXRpb25fZGVmaW5pdGlvbiI6eyJpZCI6IiIsImlucHV0X2Rlc2NyaXB0b3JzIjpudWxsLCJmb3JtYXQiOm51bGx9LCJyZWRpcmVjdF91cmkiOiJodHRwczovL3ZlcmlmaWVyLm9yZy9hcGkvdjEvYXV0aGVudGljYXRpb25fcmVzcG9uc2UiLCJyZXNwb25zZV90eXBlIjoidnBfdG9rZW4iLCJzY29wZSI6Im9wZW5pZCIsInN0YXRlIjoicmFuZG9tU3RhdGUifQ.Z0xv_E9vvhRN2nBeKQ49LgH8lkjkX-weR7R5eCmX9ebGr1aE8_6usa2PO9nJ4LRv8oWMg0q9fsQ2x5DTYbvLdA
+```
+
+### JWT Structure
+
+The request JWT contains three parts:
+
+**Header:**
+```json
+{
+  "alg": "ES256",
+  "typ": "oauth-authz-req+jwt"
+}
+```
+
+**Payload:**
+```json
+{
+  "client_id": "did:key:verifier",
+  "exp": 30,
+  "iss": "did:key:verifier",
+  "nonce": "randomNonce",
+  "presentation_definition": {
+    "id": "",
+    "input_descriptors": null,
+    "format": null
+  },
+  "redirect_uri": "https://verifier.org/api/v1/authentication_response",
+  "response_type": "vp_token",
+  "scope": "openid",
+  "state": "randomState"
+}
+```
+
+**Signature:**
+Cryptographic signature using the verifier's private key
+
+### Usage
+
+Specify `request_mode=byValue` when initiating authentication:
+
+<CodeGroup>
+
+```bash cURL
+curl -X 'GET' \
+  'http://localhost:8080/api/v1/samedevice?state=274e7465-cc9d-4cad-b75f-190db927e56a&request_mode=byValue'
+```
+
+```javascript JavaScript
+fetch('https://verifier.example.com/api/v1/loginQR?' + new URLSearchParams({
+  state: crypto.randomUUID(),
+  request_mode: 'byValue',
+  client_id: 'my-app',
+  client_callback: 'https://my-app.com/callback'
+}))
+.then(response => {
+  // QR code page or redirect
+  window.location.href = response.url;
+});
+```
+
+```python Python
+response = requests.get(
+    'https://verifier.example.com/api/v1/loginQR',
+    params={
+        'state': str(uuid.uuid4()),
+        'request_mode': 'byValue',
+        'client_callback': 'https://my-app.com/callback'
+    }
+)
+```
+
+</CodeGroup>
+
+### Characteristics
+
+<Tabs>
+  <Tab title="Advantages">
+    - **Secure** - Signed JWT prevents tampering
+    - **Self-contained** - No additional HTTP requests
+    - **Verifiable** - Wallet can verify verifier's identity
+    - **Standards compliant** - Follows RFC9101
+  </Tab>
+  
+  <Tab title="Disadvantages">
+    - **Size limited** - JWT can make URL very long
+    - **QR code size** - Larger QR codes harder to scan
+    - **Requires configuration** - clientIdentification must be set
+    - **Processing overhead** - Wallet must verify JWT
+  </Tab>
+</Tabs>
+
+### When to Use
+
+<Check>
+  Use `byValue` when:
+  - Need cryptographic request integrity
+  - Wallet supports JWT request objects
+  - Request parameters fit in URL
+  - Want self-contained authentication flow
+</Check>
+
+## Mode 3: byReference (Recommended)
+
+### Description
+
+Instead of embedding the JWT in the URL, a reference (URL) to the JWT is provided. The wallet retrieves the request object by making an HTTP request to the verifier.
+
+This is the **recommended mode** for production as it keeps QR codes small while maintaining security through signed JWTs.
+
+### Example
+
+```
+openid4vp://?client_id=did:key:verifier&request_uri=verifier.org/api/v1/request/randomState&request_uri_method=get
+```
+
+The wallet then fetches the JWT:
+
+```bash
+curl https://verifier.org/api/v1/request/randomState
+```
+
+Response:
+```
+eyJhbGciOiJFUzI1NiIsInR5cCI6Im9hdXRoLWF1dGh6LXJlcStqd3QifQ.eyJjbGllbnRfaWQiOiJkaWQ6a2V5OnZlcmlmaWVyIiwiZXhwIjozMCwiaXNzIjoiZGlkOmtleTp2ZXJpZmllciIsIm5vbmNlIjoicmFuZG9tTm9uY2UiLCJwcmVzZW50YXRpb25fZGVmaW5pdGlvbiI6eyJpZCI6IiIsImlucHV0X2Rlc2NyaXB0b3JzIjpudWxsLCJmb3JtYXQiOm51bGx9LCJyZWRpcmVjdF91cmkiOiJodHRwczovL3ZlcmlmaWVyLm9yZy9hcGkvdjEvYXV0aGVudGljYXRpb25fcmVzcG9uc2UiLCJyZXNwb25zZV90eXBlIjoidnBfdG9rZW4iLCJzY29wZSI6Im9wZW5pZCIsInN0YXRlIjoicmFuZG9tU3RhdGUifQ.Z0xv_E9vvhRN2nBeKQ49LgH8lkjkX-weR7R5eCmX9ebGr1aE8_6usa2PO9nJ4LRv8oWMg0q9fsQ2x5DTYbvLdA
+```
+
+### Usage
+
+Specify `request_mode=byReference` (or omit as it's often the default):
+
+<CodeGroup>
+
+```bash cURL
+curl -X 'GET' \
+  'http://localhost:8080/api/v1/samedevice?state=274e7465-cc9d-4cad-b75f-190db927e56a&request_mode=byReference'
+```
+
+```javascript JavaScript
+const params = new URLSearchParams({
+  state: crypto.randomUUID(),
+  request_mode: 'byReference',
+  client_id: 'my-app',
+  client_callback: 'https://my-app.com/callback'
+});
+
+window.location.href = `https://verifier.example.com/api/v1/loginQR?${params}`;
+```
+
+```python Python
+response = requests.get(
+    'https://verifier.example.com/api/v1/loginQR',
+    params={
+        'state': str(uuid.uuid4()),
+        'request_mode': 'byReference',
+        'client_callback': 'https://my-app.com/callback'
+    }
+)
+```
+
+</CodeGroup>
+
+### Request Object Endpoint
+
+The request object is available at `/api/v1/request/{state}`:
+
+<CodeGroup>
+
+```bash cURL
+curl -X 'GET' \
+  'https://verifier.example.com/api/v1/request/randomState'
+```
+
+```javascript JavaScript
+async function fetchRequestObject(state) {
+  const response = await fetch(
+    `https://verifier.example.com/api/v1/request/${state}`
+  );
+  
+  const jwt = await response.text();
+  return jwt;
+}
+```
+
+```python Python
+def fetch_request_object(state):
+    response = requests.get(
+        f'https://verifier.example.com/api/v1/request/{state}'
+    )
+    return response.text
+```
+
+</CodeGroup>
+
+### Characteristics
+
+<Tabs>
+  <Tab title="Advantages">
+    - **Small QR codes** - Only contains reference URL
+    - **Secure** - Signed JWT prevents tampering
+    - **Scalable** - Works with complex presentation definitions
+    - **Best practice** - Recommended by standards
+    - **Easy scanning** - Smaller QR codes scan faster
+  </Tab>
+  
+  <Tab title="Disadvantages">
+    - **Additional request** - Wallet must fetch JWT
+    - **Network dependency** - Requires wallet internet access
+    - **Requires configuration** - clientIdentification must be set
+    - **Endpoint availability** - Request endpoint must be accessible
+  </Tab>
+</Tabs>
+
+### When to Use
+
+<Check>
+  Use `byReference` when:
+  - Production deployments
+  - Complex credential requests
+  - QR code size is a concern
+  - Security is a priority
+  - Wallet supports request_uri
+</Check>
+
+## Comparison Matrix
+
+| Feature | urlEncoded | byValue | byReference |
+|---------|------------|---------|-------------|
+| **QR Code Size** | Medium | Large | Small |
+| **Security** | Basic | High | High |
+| **Request Integrity** | No | Yes | Yes |
+| **Additional HTTP Calls** | 0 | 0 | 1 |
+| **Configuration Required** | No | Yes | Yes |
+| **Complex Requests** | Limited | Limited | Yes |
+| **Wallet Compatibility** | Universal | Good | Good |
+| **Production Recommended** | No | Maybe | **Yes** |
+
+## Client Identification Setup
+
+For `byValue` and `byReference` modes, you need to configure client identification:
+
+### Using DID
+
+```yaml
+verifier:
+  clientIdentification:
+    id: "did:key:z6MkigCEnopwujz8Ten2dzq91nvMjqbKQYcifuZhqBsEkH7g"
+    keyPath: "/keys/signing-key.pem"
+    requestKeyAlgorithm: "ES256"
+```
+
+### Using x509 (san_dns)
+
+```yaml
+verifier:
+  clientIdentification:
+    id: "verifier.example.com"
+    keyPath: "/keys/signing-key.pem"
+    requestKeyAlgorithm: "RS256"
+    certificatePath: "/keys/certificate.pem"
+    kid: "cert-2024-01"
+```
+
+### Generating Keys
+
+<CodeGroup>
+
+```bash ES256 (Elliptic Curve)
+# Generate private key
+openssl ecparam -name prime256v1 -genkey -noout -out signing-key.pem
+
+# Extract public key
+openssl ec -in signing-key.pem -pubout -out public-key.pem
+```
+
+```bash RS256 (RSA)
+# Generate private key
+openssl genrsa -out signing-key.pem 2048
+
+# Extract public key
+openssl rsa -in signing-key.pem -pubout -out public-key.pem
+```
+
+</CodeGroup>
+
+## Dynamic Request Mode Selection
+
+You can allow clients to specify the request mode dynamically:
+
+```javascript
+function initiateAuth(requestMode = 'byReference') {
+  const params = new URLSearchParams({
+    state: crypto.randomUUID(),
+    request_mode: requestMode,
+    client_id: 'my-app',
+    client_callback: window.location.origin + '/callback'
+  });
+  
+  window.location.href = `https://verifier.example.com/api/v1/loginQR?${params}`;
+}
+
+// Use byReference (recommended)
+initiateAuth('byReference');
+
+// Fall back to urlEncoded for basic wallets
+initiateAuth('urlEncoded');
+
+// Use byValue for offline scenarios
+initiateAuth('byValue');
+```
+
+## Wallet Compatibility
+
+Different wallets have varying support for request modes:
+
+<Tabs>
+  <Tab title="Modern Wallets">
+    **Support all modes**
+    - EBSI Wallet
+    - Walt.ID Wallet
+    - Sphereon Wallet
+    
+    Recommended: `byReference`
+  </Tab>
+  
+  <Tab title="Standard Wallets">
+    **Support urlEncoded and byValue**
+    - Most OIDC4VP compliant wallets
+    - Custom enterprise wallets
+    
+    Recommended: `byValue` or `urlEncoded`
+  </Tab>
+  
+  <Tab title="Basic Wallets">
+    **Support urlEncoded only**
+    - Simple implementations
+    - Legacy wallets
+    
+    Must use: `urlEncoded`
+  </Tab>
+</Tabs>
+
+## Testing Different Modes
+
+Test each request mode to ensure wallet compatibility:
+
+```javascript
+async function testRequestModes() {
+  const modes = ['urlEncoded', 'byValue', 'byReference'];
+  const results = {};
+  
+  for (const mode of modes) {
+    try {
+      const state = crypto.randomUUID();
+      const response = await fetch(
+        `https://verifier.example.com/api/v1/samedevice?` +
+        `state=${state}&request_mode=${mode}`,
+        { redirect: 'manual' }
+      );
+      
+      if (response.status === 302) {
+        const location = response.headers.get('location');
+        results[mode] = {
+          success: true,
+          url: location,
+          size: location.length
+        };
+      }
+    } catch (error) {
+      results[mode] = {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+  
+  console.table(results);
+  return results;
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Production Deployments">
+    - Use `byReference` as the default mode
+    - Configure `clientIdentification` properly
+    - Use strong signing algorithms (ES256 or RS256)
+    - Monitor request object endpoint availability
+  </Accordion>
+  
+  <Accordion title="Development & Testing">
+    - Start with `urlEncoded` for simplicity
+    - Test all three modes with your target wallet
+    - Verify JWT signature verification works
+    - Check QR code scanning performance
+  </Accordion>
+  
+  <Accordion title="Wallet Compatibility">
+    - Detect wallet capabilities if possible
+    - Provide fallback to `urlEncoded`
+    - Document supported modes for integrators
+    - Test with multiple wallet implementations
+  </Accordion>
+  
+  <Accordion title="Security">
+    - Always use HTTPS in production
+    - Rotate signing keys regularly
+    - Set appropriate JWT expiration times
+    - Validate request_uri domains
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+### JWT Signature Verification Failed
+
+**Issue:** Wallet cannot verify the JWT signature.
+
+**Solutions:**
+- Verify `clientIdentification.id` matches the signing key
+- Check the signing algorithm matches the key type
+- Ensure the public key is accessible to the wallet
+- Validate certificate chain for x509_san_dns
+
+### Request Object Not Found
+
+**Issue:** Wallet gets 404 when fetching request_uri.
+
+**Solutions:**
+- Verify the request object endpoint is accessible
+- Check session hasn't expired
+- Ensure state parameter is correct
+- Verify firewall rules allow wallet access
+
+### QR Code Too Large
+
+**Issue:** QR code is too large to scan reliably.
+
+**Solutions:**
+- Switch from `byValue` to `byReference`
+- Reduce presentation definition complexity
+- Use shorter URLs (custom domain)
+- Test with different QR code error correction levels
+
+### Mode Not Supported
+
+**Issue:** Selected mode is not in `supportedModes` configuration.
+
+**Solutions:**
+- Add the mode to `verifier.supportedModes` array
+- Configure `clientIdentification` for signed modes
+- Restart VCVerifier after configuration change
+- Verify configuration file syntax
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="cog" href="/essentials/configuration">
+    Complete configuration guide for VCVerifier
+  </Card>
+  
+  <Card title="Frontend Integration" icon="window" href="/integration/frontend">
+    Implement frontend authentication flows
+  </Card>
+  
+  <Card title="Same-Device Flow" icon="mobile" href="/integration/same-device">
+    Learn about same-device authentication
+  </Card>
+  
+  <Card title="Security" icon="shield" href="/essentials/security">
+    Security best practices and considerations
+  </Card>
+</CardGroup>

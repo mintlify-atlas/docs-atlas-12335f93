@@ -1,0 +1,509 @@
+---
+title: Mixed Trust Registry Usage
+description: Configure multiple trust registries simultaneously for flexible issuer verification
+---
+
+## Overview
+
+VCVerifier supports using multiple trust registries of different types simultaneously. This enables flexible trust models where issuers can be verified through any of several configured registries, providing redundancy and supporting diverse ecosystems.
+
+## Trust Logic
+
+<Note>
+  When multiple trust registries are configured, an issuer is considered **trusted if found in at least one** of the configured registries. This implements an **OR logic** across registries.
+</Note>
+
+This approach provides:
+
+- **Redundancy**: If one registry is unavailable, others can still verify issuers
+- **Flexibility**: Support issuers from different ecosystems (EBSI, Gaia-X, etc.)
+- **Gradual Migration**: Transition between registry systems without disruption
+- **Multi-Ecosystem Support**: Participate in multiple trust frameworks simultaneously
+
+## Configuration
+
+### Basic Mixed Configuration
+
+Combine EBSI TIR and Gaia-X Registry for the same credential type:
+
+```yaml
+configRepo:
+  services:
+    testService:
+      scope:
+        - VerifiableCredential
+      trustedParticipants:
+        VerifiableCredential:
+          - type: ebsi
+            url: https://tir-pdc.ebsi.fiware.dev
+          - type: gaia-x
+            url: https://registry.lab.gaia-x.eu
+```
+
+### Multiple Registries per Type
+
+You can configure multiple registries of the same type:
+
+```yaml
+configRepo:
+  services:
+    testService:
+      scope:
+        - VerifiableCredential
+      trustedParticipants:
+        VerifiableCredential:
+          # Multiple EBSI TIR instances
+          - type: ebsi
+            url: https://tir-pdc.ebsi.fiware.dev
+          - type: ebsi
+            url: https://tir-backup.ebsi.fiware.dev
+          # Gaia-X Registry
+          - type: gaia-x
+            url: https://registry.lab.gaia-x.eu
+```
+
+### Different Registries for Different Credentials
+
+Apply different trust registry combinations to different credential types:
+
+```yaml
+configRepo:
+  services:
+    testService:
+      scope:
+        - IdentityCredential
+        - ParticipantCredential
+        - EmployeeCredential
+      trustedParticipants:
+        # Identity uses only EBSI
+        IdentityCredential:
+          - type: ebsi
+            url: https://tir-pdc.ebsi.fiware.dev
+        
+        # Participant uses both EBSI and Gaia-X
+        ParticipantCredential:
+          - type: ebsi
+            url: https://tir-pdc.ebsi.fiware.dev
+          - type: gaia-x
+            url: https://registry.lab.gaia-x.eu
+        
+        # Employee uses only Gaia-X
+        EmployeeCredential:
+          - type: gaia-x
+            url: https://registry.lab.gaia-x.eu
+```
+
+## Verification Flow
+
+When multiple registries are configured, VCVerifier checks them in order:
+
+<Steps>
+  <Step title="Receive Credential">
+    VCVerifier receives a credential and extracts the issuer DID
+  </Step>
+  
+  <Step title="Check First Registry">
+    Query the first configured registry (e.g., EBSI TIR):
+    - If issuer is found → **Verification succeeds** ✓
+    - If issuer is not found → Continue to next registry
+  </Step>
+  
+  <Step title="Check Additional Registries">
+    If first registry didn't find the issuer, query subsequent registries:
+    - Try Gaia-X Registry
+    - If issuer is found → **Verification succeeds** ✓
+    - If not found → Continue to next registry
+  </Step>
+  
+  <Step title="Final Result">
+    - If issuer found in **any** registry → **Trusted** ✓
+    - If issuer **not found** in any registry → **Not trusted** ✗
+  </Step>
+</Steps>
+
+<CodeGroup>
+```go Verification Logic
+// Pseudocode representation
+func VerifyIssuer(did string, registries []Registry) bool {
+    for _, registry := range registries {
+        if registry.IsTrustedParticipant(did) {
+            return true  // Found in at least one registry
+        }
+    }
+    return false  // Not found in any registry
+}
+```
+
+```yaml Configuration Example
+trustedParticipants:
+  VerifiableCredential:
+    - type: ebsi           # Checked first
+      url: https://tir-pdc.ebsi.fiware.dev
+    - type: gaia-x         # Checked if first fails
+      url: https://registry.lab.gaia-x.eu
+```
+</CodeGroup>
+
+## Use Cases
+
+### Use Case 1: High Availability
+
+Provide redundancy by configuring multiple registries of the same type:
+
+```yaml
+trustedParticipants:
+  VerifiableCredential:
+    - type: ebsi
+      url: https://tir-primary.ebsi.eu
+    - type: ebsi
+      url: https://tir-backup.ebsi.eu
+    - type: ebsi
+      url: https://tir-fallback.ebsi.eu
+```
+
+**Benefits**:
+- Service continues if primary registry is down
+- Automatic failover to backup registries
+- Improved uptime and reliability
+
+### Use Case 2: Multi-Ecosystem Participation
+
+Support issuers from both EBSI and Gaia-X ecosystems:
+
+```yaml
+trustedParticipants:
+  BusinessCredential:
+    - type: ebsi
+      url: https://tir-pdc.ebsi.fiware.dev
+    - type: gaia-x
+      url: https://registry.gaia-x.eu
+```
+
+**Benefits**:
+- Accept credentials from multiple trust frameworks
+- Broader ecosystem participation
+- Flexibility in issuer onboarding
+
+### Use Case 3: Migration Strategy
+
+Gradually migrate from one registry to another:
+
+```yaml
+trustedParticipants:
+  VerifiableCredential:
+    # Old registry (being phased out)
+    - type: ebsi
+      url: https://tir-legacy.example.com
+    # New registry (being adopted)
+    - type: ebsi
+      url: https://tir-new.example.com
+```
+
+**Benefits**:
+- Zero-downtime migration
+- Issuers can move at their own pace
+- Backward compatibility during transition
+
+### Use Case 4: Regional Registries
+
+Support different regional trust frameworks:
+
+```yaml
+trustedParticipants:
+  VerifiableCredential:
+    # European registry
+    - type: ebsi
+      url: https://tir.ebsi.eu
+    # North American registry
+    - type: ebsi
+      url: https://tir.example.com
+    # Asia-Pacific registry
+    - type: ebsi
+      url: https://tir.apac.example.com
+```
+
+**Benefits**:
+- Global issuer support
+- Regional compliance
+- Reduced latency with regional endpoints
+
+## Performance Considerations
+
+### Sequential Checking
+
+Registries are checked sequentially, not in parallel:
+
+<Warning>
+  If the first registry is slow to respond, it will delay the entire verification process even if subsequent registries could verify the issuer faster.
+</Warning>
+
+**Optimization strategies**:
+
+1. **Order registries by likelihood**: Place the most likely registry first
+2. **Use caching**: VCVerifier's cache prevents repeated registry queries
+3. **Monitor performance**: Track which registries are slow and reorder accordingly
+
+### Caching Behavior
+
+Each registry lookup is cached independently:
+
+```yaml
+verifier:
+  tirCacheExpiry: 3600  # Cache EBSI TIR results for 1 hour
+  tilCacheExpiry: 3600  # Cache trusted issuer lists for 1 hour
+```
+
+- First verification: Queries all necessary registries
+- Subsequent verifications: Served from cache
+- Cache miss: Only queries registries not in cache
+
+### Network Resilience
+
+<CodeGroup>
+```yaml Production Configuration
+trustedParticipants:
+  VerifiableCredential:
+    # Primary - fast, reliable
+    - type: ebsi
+      url: https://tir-primary.ebsi.eu
+    # Fallback - alternative provider
+    - type: ebsi
+      url: https://tir-backup.provider.com
+    # Last resort - Gaia-X
+    - type: gaia-x
+      url: https://registry.gaia-x.eu
+```
+
+```yaml Development Configuration  
+trustedParticipants:
+  VerifiableCredential:
+    # Local mock (fastest)
+    - type: ebsi
+      url: http://localhost:8081
+    # Development TIR
+    - type: ebsi
+      url: https://tir-pdc.ebsi.fiware.dev
+```
+</CodeGroup>
+
+## Error Handling
+
+How VCVerifier handles errors with multiple registries:
+
+| Error Type | Behavior |
+|-----------|----------|
+| **Connection timeout** | Skip to next registry |
+| **HTTP 404 (Not Found)** | Skip to next registry |
+| **HTTP 500 (Server Error)** | Skip to next registry |
+| **Invalid response** | Skip to next registry |
+| **All registries fail** | Verification fails |
+
+<Note>
+  Errors from individual registries are logged but don't cause immediate verification failure. Only if **all** registries fail or return "not found" does the overall verification fail.
+</Note>
+
+## Testing Mixed Configurations
+
+### Test Registry Fallback
+
+Verify that fallback works correctly:
+
+```bash
+# Test with issuer only in second registry
+# 1. Confirm issuer NOT in first registry
+curl https://tir-pdc.ebsi.fiware.dev/v4/issuers/did:web:example.com
+# Expected: 404
+
+# 2. Confirm issuer IS in second registry
+curl -X POST https://registry.lab.gaia-x.eu/v2/api/trustAnchor/chain/file \
+  -H "Content-Type: application/json" \
+  -d '{"uri": "https://example.com/certs/chain.pem"}'
+# Expected: 200
+
+# 3. Verify credential - should succeed via Gaia-X
+```
+
+### Monitor Registry Performance
+
+Track which registries are actually being used:
+
+```bash
+# Enable debug logging
+logging:
+  level: "DEBUG"
+
+# Watch logs for registry queries
+tail -f verifier.log | grep "Verify participant"
+```
+
+Look for log entries like:
+```
+DEBUG: Verify participant did:web:example.com at gaia-x registry https://registry.lab.gaia-x.eu
+INFO: Issuer did:web:example.com is a trusted participant via https://registry.lab.gaia-x.eu
+```
+
+## Advanced Patterns
+
+### Credential-Type-Specific Strategies
+
+```yaml
+configRepo:
+  services:
+    testService:
+      trustedParticipants:
+        # High-security credentials: strict EBSI only
+        IdentityCredential:
+          - type: ebsi
+            url: https://tir-secure.ebsi.eu
+        
+        # Business credentials: flexible multi-registry
+        BusinessCredential:
+          - type: ebsi
+            url: https://tir-pdc.ebsi.fiware.dev
+          - type: gaia-x
+            url: https://registry.gaia-x.eu
+        
+        # Development credentials: permissive local + remote
+        TestCredential:
+          - type: ebsi
+            url: http://localhost:8081
+          - type: ebsi
+            url: https://tir-pdc.ebsi.fiware.dev
+```
+
+### Environment-Based Configuration
+
+<CodeGroup>
+```yaml Production
+configRepo:
+  services:
+    testService:
+      trustedParticipants:
+        VerifiableCredential:
+          - type: ebsi
+            url: https://tir.ebsi.eu
+          - type: gaia-x
+            url: https://registry.gaia-x.eu
+```
+
+```yaml Staging
+configRepo:
+  services:
+    testService:
+      trustedParticipants:
+        VerifiableCredential:
+          - type: ebsi
+            url: https://tir-staging.ebsi.eu
+          - type: ebsi
+            url: https://tir.ebsi.eu
+```
+
+```yaml Development
+configRepo:
+  services:
+    testService:
+      trustedParticipants:
+        VerifiableCredential:
+          - type: ebsi
+            url: http://localhost:8081
+          - type: ebsi
+            url: https://tir-pdc.ebsi.fiware.dev
+```
+</CodeGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Verification Fails Despite Valid Issuer">
+    **Symptoms**: Issuer exists in one registry but verification still fails
+    
+    **Diagnosis**:
+    ```yaml
+    # Enable debug logging
+    logging:
+      level: DEBUG
+    ```
+    
+    **Common causes**:
+    - Registry order: Issuer is in registry #2 but registry #1 has connection issues and times out
+    - Cache issues: Stale cache entry indicating issuer is not found
+    - Configuration error: Registry URL typo or wrong credential type mapping
+    
+    **Solutions**:
+    - Check logs for which registries are being queried
+    - Verify registry URLs are correct and accessible
+    - Clear cache and retry
+    - Reorder registries to put most reliable first
+  </Accordion>
+  
+  <Accordion title="Slow Verification Performance">
+    **Symptoms**: Verification takes too long
+    
+    **Diagnosis**:
+    - Check if first registry has high latency
+    - Monitor cache hit rates
+    
+    **Solutions**:
+    - Reorder registries: Put fastest/most-used first
+    - Increase cache expiry times
+    - Add more specific credential type mappings
+    - Consider removing slow or unused registries
+  </Accordion>
+  
+  <Accordion title="Inconsistent Verification Results">
+    **Symptoms**: Same credential sometimes verifies, sometimes doesn't
+    
+    **Likely causes**:
+    - Intermittent registry availability
+    - Registry synchronization delays
+    - Cache expiry during high-traffic periods
+    
+    **Solutions**:
+    - Add redundant registries for high availability
+    - Increase cache expiry to reduce registry queries
+    - Monitor registry health and availability
+    - Implement retry logic in your application
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Order Matters" icon="arrow-down-1-9">
+    Place most likely / fastest registries first to optimize performance
+  </Card>
+  
+  <Card title="Redundancy for Critical Credentials" icon="shield-check">
+    Configure multiple registries for high-value credential types
+  </Card>
+  
+  <Card title="Monitor and Adjust" icon="chart-line">
+    Track which registries are actually used and adjust order accordingly
+  </Card>
+  
+  <Card title="Test Failover" icon="rotate">
+    Regularly test that failover to backup registries works correctly
+  </Card>
+  
+  <Card title="Document Your Strategy" icon="book">
+    Clearly document which registries are used for which credential types
+  </Card>
+  
+  <Card title="Environment Consistency" icon="copy">
+    Use similar registry strategies across dev, staging, and production
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="EBSI TIR" icon="shield" href="./ebsi-tir">
+    Learn more about EBSI TIR configuration
+  </Card>
+  <Card title="Gaia-X" icon="star" href="./gaia-x">
+    Dive deeper into Gaia-X Registry setup
+  </Card>
+  <Card title="Overview" icon="book" href="./overview">
+    Back to trust anchors overview
+  </Card>
+</CardGroup>

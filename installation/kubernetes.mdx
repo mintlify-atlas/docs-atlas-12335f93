@@ -1,0 +1,598 @@
+---
+title: Kubernetes deployment
+description: Deploy VCVerifier on Kubernetes using Helm charts
+---
+
+## Overview
+
+VCVerifier can be deployed on Kubernetes using the official Helm chart provided by the i4Trust project. This provides a production-ready deployment with configurable resources, scaling, and integration options.
+
+## Prerequisites
+
+- Kubernetes cluster (v1.19+)
+- Helm 3.x installed
+- `kubectl` configured to access your cluster
+
+## Installation with Helm
+
+<Steps>
+
+<Step title="Add the Helm repository">
+
+Add the i4Trust Helm repository:
+
+```bash
+helm repo add i4trust https://i4trust.github.io/helm-charts/
+helm repo update
+```
+
+</Step>
+
+<Step title="Create a values file">
+
+Create a `values.yaml` file with your configuration:
+
+```yaml values.yaml
+vcverifier:
+  # Image configuration
+  image:
+    repository: quay.io/fiware/vcverifier
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8080
+
+  # Ingress configuration
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: verifier.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: verifier-tls
+        hosts:
+          - verifier.example.com
+
+  # Resource limits
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  # VCVerifier configuration
+  config:
+    server:
+      port: 8080
+      templateDir: "views/"
+      staticDir: "views/static/"
+    
+    logging:
+      level: "INFO"
+      jsonLogging: true
+      logRequests: true
+    
+    verifier:
+      did: did:key:z6MkigCEnopwujz8Ten2dzq91nvMjqbKQYcifuZhqBsEkH7g
+      sessionExpiry: 30
+      generateKey: true
+      supportedModes:
+        - urlEncoded
+        - byReference
+        - byValue
+    
+    configRepo:
+      configEndpoint: http://config-service:8080
+```
+
+</Step>
+
+<Step title="Install the chart">
+
+Deploy VCVerifier to your cluster:
+
+```bash
+helm install vcverifier i4trust/vcverifier \
+  -f values.yaml \
+  --namespace vcverifier \
+  --create-namespace
+```
+
+</Step>
+
+<Step title="Verify the deployment">
+
+Check the deployment status:
+
+```bash
+kubectl get pods -n vcverifier
+kubectl get svc -n vcverifier
+kubectl get ingress -n vcverifier
+```
+
+</Step>
+
+</Steps>
+
+## Configuration options
+
+### Basic configuration
+
+<CodeGroup>
+
+```yaml Minimal setup
+vcverifier:
+  config:
+    verifier:
+      did: did:key:myverifier
+      tirAddress: https://tir-pdc.ebsi.fiware.dev
+      generateKey: true
+```
+
+```yaml With external config service
+vcverifier:
+  config:
+    configRepo:
+      configEndpoint: http://credentials-config-service.default.svc.cluster.local:8080
+      services:
+        - id: myService
+          defaultOidcScope: "default"
+```
+
+```yaml With static configuration
+vcverifier:
+  config:
+    verifier:
+      did: did:key:myverifier
+      generateKey: false
+      keyPath: /keys/private-key.pem
+      keyAlgorithm: RS256
+    
+    configRepo:
+      services:
+        - id: testService
+          defaultOidcScope: "default"
+          oidcScopes:
+            default:
+              credentials:
+                - type: CustomerCredential
+                  trustedParticipantsLists:
+                    VerifiableCredential:
+                      - https://tir-pdc.ebsi.fiware.dev
+```
+
+</CodeGroup>
+
+### Using ConfigMaps
+
+Store configuration in a ConfigMap:
+
+<Steps>
+
+<Step title="Create ConfigMap">
+
+```bash
+kubectl create configmap vcverifier-config \
+  --from-file=server.yaml \
+  -n vcverifier
+```
+
+</Step>
+
+<Step title="Reference in values.yaml">
+
+```yaml values.yaml
+vcverifier:
+  configMap:
+    enabled: true
+    name: vcverifier-config
+    mountPath: /config
+  
+  env:
+    - name: CONFIG_FILE
+      value: /config/server.yaml
+```
+
+</Step>
+
+</Steps>
+
+### Using Secrets for private keys
+
+Store sensitive data in Kubernetes Secrets:
+
+<Steps>
+
+<Step title="Create Secret">
+
+```bash
+kubectl create secret generic vcverifier-keys \
+  --from-file=private-key.pem \
+  --from-file=certificate.pem \
+  -n vcverifier
+```
+
+</Step>
+
+<Step title="Mount Secret in deployment">
+
+```yaml values.yaml
+vcverifier:
+  secrets:
+    - name: vcverifier-keys
+      mountPath: /keys
+      items:
+        - key: private-key.pem
+          path: private-key.pem
+        - key: certificate.pem
+          path: certificate.pem
+  
+  config:
+    verifier:
+      generateKey: false
+      keyPath: /keys/private-key.pem
+      clientIdentification:
+        keyPath: /keys/private-key.pem
+        certificatePath: /keys/certificate.pem
+```
+
+</Step>
+
+</Steps>
+
+## Ingress configuration
+
+### NGINX Ingress
+
+```yaml values.yaml
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+  hosts:
+    - host: verifier.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: verifier-tls-cert
+      hosts:
+        - verifier.example.com
+```
+
+### Traefik Ingress
+
+```yaml values.yaml
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+  hosts:
+    - host: verifier.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+```
+
+<Note>
+Ensure your DNS records point to your Kubernetes cluster's ingress controller before configuring TLS certificates.
+</Note>
+
+## Scaling and high availability
+
+### Horizontal Pod Autoscaling
+
+```yaml values.yaml
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+```
+
+### Pod Disruption Budget
+
+```yaml values.yaml
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+```
+
+### Anti-affinity rules
+
+Distribute pods across nodes:
+
+```yaml values.yaml
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - vcverifier
+          topologyKey: kubernetes.io/hostname
+```
+
+## Monitoring and observability
+
+### Health checks
+
+Configure liveness and readiness probes:
+
+```yaml values.yaml
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+```
+
+### Prometheus monitoring
+
+Enable Prometheus metrics:
+
+```yaml values.yaml
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  path: /metrics
+  labels:
+    prometheus: kube-prometheus
+```
+
+### Logging
+
+Configure structured JSON logging for log aggregation:
+
+```yaml values.yaml
+config:
+  logging:
+    level: "INFO"
+    jsonLogging: true
+    logRequests: true
+    pathsToSkip:
+      - /health
+      - /metrics
+```
+
+## Integration with other services
+
+### Connect to Config Service
+
+Deploy with the Credentials Config Service:
+
+```yaml values.yaml
+vcverifier:
+  config:
+    configRepo:
+      configEndpoint: http://credentials-config-service.vcverifier.svc.cluster.local:8080
+
+# Also deploy config service
+credentials-config-service:
+  enabled: true
+  image:
+    repository: quay.io/fiware/credentials-config-service
+    tag: "2.0.0"
+```
+
+### Service mesh integration
+
+For Istio integration:
+
+```yaml values.yaml
+podAnnotations:
+  sidecar.istio.io/inject: "true"
+  traffic.sidecar.istio.io/includeInboundPorts: "8080"
+```
+
+## Upgrading
+
+Upgrade an existing deployment:
+
+```bash
+helm upgrade vcverifier i4trust/vcverifier \
+  -f values.yaml \
+  -n vcverifier
+```
+
+<Warning>
+Always test upgrades in a staging environment first. Review the changelog for breaking changes.
+</Warning>
+
+## Uninstalling
+
+Remove the deployment:
+
+```bash
+helm uninstall vcverifier -n vcverifier
+```
+
+To also remove the namespace:
+
+```bash
+kubectl delete namespace vcverifier
+```
+
+## Complete production example
+
+```yaml production-values.yaml
+vcverifier:
+  # Image
+  image:
+    repository: quay.io/fiware/vcverifier
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+
+  # Replicas
+  replicaCount: 3
+
+  # Resources
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 200m
+      memory: 256Mi
+
+  # Autoscaling
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 75
+
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 10
+    periodSeconds: 5
+
+  # Ingress
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      nginx.ingress.kubernetes.io/rate-limit: "100"
+    hosts:
+      - host: verifier.prod.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: verifier-prod-tls
+        hosts:
+          - verifier.prod.example.com
+
+  # Configuration
+  config:
+    server:
+      port: 8080
+    
+    logging:
+      level: "INFO"
+      jsonLogging: true
+      logRequests: true
+      pathsToSkip:
+        - /health
+    
+    verifier:
+      did: did:key:z6MkigCEnopwujz8Ten2dzq91nvMjqbKQYcifuZhqBsEkH7g
+      sessionExpiry: 30
+      generateKey: false
+      keyPath: /keys/private-key.pem
+      keyAlgorithm: ES256
+      supportedModes:
+        - byReference
+      clientIdentification:
+        id: did:key:z6MkigCEnopwujz8Ten2dzq91nvMjqbKQYcifuZhqBsEkH7g
+        keyPath: /keys/request-key.pem
+        requestKeyAlgorithm: ES256
+    
+    configRepo:
+      configEndpoint: http://credentials-config-service:8080
+
+  # Secrets
+  secrets:
+    - name: vcverifier-keys
+      mountPath: /keys
+
+  # Monitoring
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+
+  # Security
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+```
+
+Deploy with:
+
+```bash
+helm install vcverifier i4trust/vcverifier \
+  -f production-values.yaml \
+  -n vcverifier-prod \
+  --create-namespace
+```
+
+## Troubleshooting
+
+### Check pod status
+
+```bash
+kubectl get pods -n vcverifier
+kubectl describe pod <pod-name> -n vcverifier
+kubectl logs <pod-name> -n vcverifier
+```
+
+### Debug configuration
+
+View the effective configuration:
+
+```bash
+kubectl exec -it <pod-name> -n vcverifier -- cat /app/server.yaml
+```
+
+### Network issues
+
+Test connectivity from within the pod:
+
+```bash
+kubectl exec -it <pod-name> -n vcverifier -- wget -O- http://localhost:8080/health
+```
+
+## Next steps
+
+- Configure [trust anchors](/trust-anchors/overview)
+- Learn about [configuration options](/configuration/overview)
+- Explore the [API documentation](/api/overview)

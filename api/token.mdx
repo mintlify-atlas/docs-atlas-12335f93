@@ -1,0 +1,511 @@
+---
+title: 'Token Endpoint'
+description: 'Exchange authorization codes or VP tokens for JWT access tokens'
+---
+
+The token endpoint implements OAuth 2.0 and token exchange flows to convert authorization codes or verifiable presentations into JWT access tokens. It supports multiple grant types for different authentication scenarios.
+
+## POST /token
+
+Exchange credentials for a JWT access token.
+
+### Request
+
+<ParamField body="grant_type" type="string" required>
+  The type of grant being requested. Determines which authentication flow is used.
+  
+  **Supported values:**
+  - `authorization_code` - Exchange authorization code for token (standard OAuth 2.0)
+  - `vp_token` - Direct VP token exchange (OIDC4VP extension)
+  - `urn:ietf:params:oauth:grant-type:token-exchange` - Token exchange flow (RFC 8693)
+</ParamField>
+
+### Authorization Code Flow
+
+<ParamField body="code" type="string" required>
+  The authorization code received from the authentication response.
+  
+  **Example:** `IwMTgvY3JlZGVudGlhbHMv`
+</ParamField>
+
+<ParamField body="redirect_uri" type="string" required>
+  Must match the redirect URI provided in the original authorization request.
+  
+  **Format:** URI
+  
+  **Example:** `https://my-portal.com/auth_callback`
+</ParamField>
+
+### VP Token Flow
+
+<ParamField body="vp_token" type="string" required>
+  The verifiable presentation token containing verified credentials. Used when `grant_type` is `vp_token`.
+  
+  Can be either:
+  - JSON-LD Verifiable Presentation (Base64-URL encoded)
+  - SD-JWT VC format
+</ParamField>
+
+<ParamField body="scope" type="string">
+  Space-delimited list of requested scopes for the access token. If not provided, the default scope for the client is used.
+  
+  **Example:** `openid tir_read tir_write`
+</ParamField>
+
+### Token Exchange Flow
+
+<ParamField body="subject_token" type="string" required>
+  A security token representing the identity of the party. For OIDC4VP, this contains the VP token.
+  
+  Required when `grant_type` is `urn:ietf:params:oauth:grant-type:token-exchange`.
+</ParamField>
+
+<ParamField body="subject_token_type" type="string" required>
+  An identifier indicating the type of security token in the `subject_token` parameter.
+  
+  **Supported value:** `urn:eu:oidf:vp_token`
+</ParamField>
+
+<ParamField body="resource" type="string" required>
+  A URI indicating the target service or resource where the client intends to use the token.
+  
+  If not provided as a path parameter (e.g., `/services/{service_id}/token`), this field is required.
+  
+  **Format:** URI
+  
+  **Example:** `https://api.example.org/service`
+</ParamField>
+
+<ParamField body="audience" type="string">
+  The logical name of the target service where the client intends to use the token.
+  
+  **Example:** `packet-delivery-service`
+</ParamField>
+
+<ParamField body="requested_token_type" type="string">
+  An identifier for the type of requested security token.
+  
+  **Supported value:** `urn:ietf:params:oauth:token-type:access_token`
+</ParamField>
+
+### Response
+
+<ResponseField name="token_type" type="string">
+  The type of token returned. Always `Bearer` for this implementation.
+</ResponseField>
+
+<ResponseField name="access_token" type="string">
+  The JWT access token containing the verified credential claims.
+  
+  The token is signed using the verifier's private key and can be verified using the public keys from the `/.well-known/jwks` endpoint.
+</ResponseField>
+
+<ResponseField name="expires_in" type="number">
+  Token lifetime in seconds.
+  
+  **Example:** `3600` (1 hour)
+</ResponseField>
+
+<ResponseField name="issued_token_type" type="string">
+  The type of token that was issued. Present for token exchange flows.
+  
+  **Value:** `urn:ietf:params:oauth:token-type:access_token`
+</ResponseField>
+
+<ResponseField name="scope" type="string">
+  The scopes associated with the issued token. Present for VP token and token exchange flows.
+  
+  **Example:** `openid tir_read`
+</ResponseField>
+
+---
+
+## Examples
+
+### Authorization Code Flow
+
+<CodeGroup>
+```bash cURL
+curl -X 'POST' \
+  'https://verifier.example.org/token' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d 'grant_type=authorization_code&code=IwMTgvY3JlZGVudGlhbHMv&redirect_uri=https%3A%2F%2Fmy-portal.com%2Fauth_callback'
+```
+
+```javascript JavaScript
+const formData = new URLSearchParams({
+  grant_type: 'authorization_code',
+  code: 'IwMTgvY3JlZGVudGlhbHMv',
+  redirect_uri: 'https://my-portal.com/auth_callback'
+});
+
+const response = await fetch('https://verifier.example.org/token', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/x-www-form-urlencoded'
+  },
+  body: formData
+});
+
+const tokenData = await response.json();
+console.log(tokenData.access_token);
+```
+
+```python Python
+import requests
+
+data = {
+    'grant_type': 'authorization_code',
+    'code': 'IwMTgvY3JlZGVudGlhbHMv',
+    'redirect_uri': 'https://my-portal.com/auth_callback'
+}
+
+response = requests.post(
+    'https://verifier.example.org/token',
+    data=data,
+    headers={'Content-Type': 'application/x-www-form-urlencoded'}
+)
+
+token_data = response.json()
+print(token_data['access_token'])
+```
+</CodeGroup>
+
+**Response:**
+
+```json 200 OK
+{
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "access_token": "eyJhbGciOiJFUzI1NiIsImtpZCI6IldPSEZ1NEhaNTlTTTg1M0M3ZU4wT3ZsS0dyTWVlckRDcEhPVVJvVFF3SHciLCJ0eXAiOiJKV1QifQ.eyJzdWIiOiJkaWQ6a2V5Ono2TWtzOW05aWZMd3kzSldxSDRjNTdFYkJRVlMyU3BSQ2pmYTc5d0hiNXZXTTZ2aCIsImlzcyI6Imh0dHBzOi8vdmVyaWZpZXIuZXhhbXBsZS5vcmciLCJleHAiOjE3MTAwMDAwMDAsInZjIjp7fX0.signature"
+}
+```
+
+### VP Token Direct Exchange
+
+<CodeGroup>
+```bash cURL
+curl -X 'POST' \
+  'https://verifier.example.org/token' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d 'grant_type=vp_token&vp_token=eyJ0eXBlIjpbIlZlcmlmaWFibGVQcmVzZW50YXRpb24iXS4uLg&scope=openid%20tir_read'
+```
+
+```javascript JavaScript
+const formData = new URLSearchParams({
+  grant_type: 'vp_token',
+  vp_token: 'eyJ0eXBlIjpbIlZlcmlmaWFibGVQcmVzZW50YXRpb24iXS4uLg==',
+  scope: 'openid tir_read'
+});
+
+const response = await fetch('https://verifier.example.org/token', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/x-www-form-urlencoded'
+  },
+  body: formData
+});
+
+const tokenData = await response.json();
+```
+</CodeGroup>
+
+**Response:**
+
+```json 200 OK
+{
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "access_token": "eyJhbGciOiJFUzI1NiIsImtpZCI6IldPSEZ1NEhaNTlTTTg1M0M3ZU4wT3ZsS0dyTWVlckRDcEhPVVJvVFF3SHciLCJ0eXAiOiJKV1QifQ...",
+  "scope": "openid tir_read",
+  "issued_token_type": "urn:ietf:params:oauth:token-type:access_token"
+}
+```
+
+### Token Exchange Flow (RFC 8693)
+
+<CodeGroup>
+```bash cURL
+curl -X 'POST' \
+  'https://verifier.example.org/token' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange&subject_token=eyJ0eXBlIjpbIlZlcmlmaWFibGVQcmVzZW50YXRpb24iXS4uLg&subject_token_type=urn:eu:oidf:vp_token&resource=https://api.example.org/service&scope=tir_read'
+```
+
+```javascript JavaScript
+const formData = new URLSearchParams({
+  grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+  subject_token: vpToken,
+  subject_token_type: 'urn:eu:oidf:vp_token',
+  resource: 'https://api.example.org/service',
+  scope: 'tir_read'
+});
+
+const response = await fetch('https://verifier.example.org/token', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/x-www-form-urlencoded'
+  },
+  body: formData
+});
+```
+</CodeGroup>
+
+**Response:**
+
+```json 200 OK
+{
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "access_token": "eyJhbGciOiJFUzI1NiIsImtpZCI6IldPSEZ1NEhaNTlTTTg1M0M3ZU4wT3ZsS0dyTWVlckRDcEhPVVJvVFF3SHciLCJ0eXAiOiJKV1QifQ...",
+  "scope": "tir_read",
+  "issued_token_type": "urn:ietf:params:oauth:token-type:access_token"
+}
+```
+
+---
+
+## Service-Specific Token Endpoint
+
+## POST /services/{service_id}/token
+
+Service-specific version of the token endpoint. The service context is provided via the path parameter instead of the request body.
+
+<ParamField path="service_id" type="string" required>
+  The identifier of the client/service requesting the token. This determines the scope and trust configuration.
+  
+  **Example:** `packet-delivery-portal`
+</ParamField>
+
+All other parameters and behavior are identical to the main `/token` endpoint.
+
+### Example
+
+```bash
+curl -X 'POST' \
+  'https://verifier.example.org/services/packet-delivery-portal/token' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d 'grant_type=authorization_code&code=IwMTgvY3JlZGVudGlhbHMv&redirect_uri=https%3A%2F%2Fmy-portal.com%2Fauth_callback'
+```
+
+---
+
+## JWT Access Token Structure
+
+The issued JWT access token contains the verified credential data and can be used for authorization in downstream services.
+
+### Token Header
+
+```json
+{
+  "alg": "ES256",
+  "kid": "WOHFu4HZ59SM853C7eN0OvlKGrMeerDCpHOURoTQwHw",
+  "typ": "JWT"
+}
+```
+
+<ResponseField name="alg" type="string">
+  The signing algorithm used. Configured via `keyAlgorithm` setting.
+  
+  **Supported algorithms:** `RS256`, `ES256`
+  
+  **Default:** `RS256`
+</ResponseField>
+
+<ResponseField name="kid" type="string">
+  Key identifier for the signing key. Used to retrieve the public key from the JWKS endpoint.
+</ResponseField>
+
+<ResponseField name="typ" type="string">
+  Token type. Always `JWT`.
+</ResponseField>
+
+### Token Payload
+
+```json
+{
+  "iss": "https://verifier.example.org",
+  "sub": "did:key:z6Mks9m9ifLwy3JWqH4c57EbBQVS2SpRCjfa79wHb5vWM6vh",
+  "aud": "packet-delivery-service",
+  "exp": 1710000000,
+  "iat": 1709996400,
+  "nbf": 1709996400,
+  "scope": ["openid", "tir_read"],
+  "verifiableCredential": {
+    "type": ["VerifiableCredential", "PacketDeliveryService"],
+    "credentialSubject": {
+      "id": "did:web:dome-marketplace.org",
+      "firstName": "HappyPets",
+      "roles": [{
+        "names": ["GOLD_CUSTOMER", "STANDARD_CUSTOMER"],
+        "target": "did:key:z6MksU6tMfbaEzvaRe5oFE4eZTVTU4HJM4fmQWWgsDGQVser"
+      }],
+      "familyName": "Prime",
+      "email": "prime-user@happypets.org"
+    }
+  }
+}
+```
+
+<ResponseField name="iss" type="string">
+  The issuer of the JWT (the verifier instance).
+</ResponseField>
+
+<ResponseField name="sub" type="string">
+  The subject of the token (holder DID from the credential).
+</ResponseField>
+
+<ResponseField name="aud" type="string">
+  The intended audience for the token.
+</ResponseField>
+
+<ResponseField name="exp" type="number">
+  Token expiration time (Unix timestamp).
+</ResponseField>
+
+<ResponseField name="verifiableCredential" type="object">
+  The first verified credential from the presentation. Contains the full credential data including the credential subject and all claims.
+</ResponseField>
+
+<Note>
+  **Current Limitation:** When multiple credentials are submitted in the VP token, all are verified but only the first credential is included in the generated JWT. Future versions may support multiple credentials.
+</Note>
+
+---
+
+## Error Responses
+
+<ResponseField name="summary" type="string">
+  Brief error description.
+</ResponseField>
+
+<ResponseField name="details" type="string">
+  Detailed error information.
+</ResponseField>
+
+### Common Errors
+
+```json 400 - Missing Grant Type
+{
+  "summary": "Missing Input",
+  "details": "Expected 'grant_type' in the request body."
+}
+```
+
+```json 400 - Unsupported Grant Type
+{
+  "summary": "Unsupported Grant Type",
+  "details": "The provided grant_type is not supported. Use 'authorization_code', 'vp_token', or 'urn:ietf:params:oauth:grant-type:token-exchange'."
+}
+```
+
+```json 400 - Missing Code
+{
+  "summary": "Missing Input",
+  "details": "Expected 'code' parameter for authorization_code grant."
+}
+```
+
+```json 400 - Invalid Token Request
+{
+  "summary": "Invalid Request",
+  "details": "Missing required parameter 'redirect_uri'."
+}
+```
+
+```json 400 - Missing Resource
+{
+  "summary": "Missing Input",
+  "details": "Expected 'resource' parameter for token exchange."
+}
+```
+
+```json 400 - Invalid Subject Token Type
+{
+  "summary": "Invalid Subject Token Type",
+  "details": "Expected subject_token_type to be 'urn:eu:oidf:vp_token'."
+}
+```
+
+```json 403 - Verification Failed
+{
+  "summary": "Verification Failed",
+  "details": "Unable to verify the provided credential against the trusted issuers registry."
+}
+```
+
+---
+
+## Verifying the JWT Token
+
+Downstream services can verify the JWT token using the verifier's public keys:
+
+1. **Retrieve Public Keys**
+   ```bash
+   curl https://verifier.example.org/.well-known/jwks
+   ```
+
+2. **Verify Signature**
+   Use a JWT library to verify the token signature using the public key matching the `kid` in the token header.
+
+3. **Validate Claims**
+   - Check `exp` (expiration)
+   - Verify `iss` (issuer)
+   - Validate `aud` (audience) matches your service
+
+<CodeGroup>
+```javascript JavaScript
+const jwt = require('jsonwebtoken');
+const jwksClient = require('jwks-rsa');
+
+const client = jwksClient({
+  jwksUri: 'https://verifier.example.org/.well-known/jwks'
+});
+
+function getKey(header, callback) {
+  client.getSigningKey(header.kid, function(err, key) {
+    const signingKey = key.publicKey || key.rsaPublicKey;
+    callback(null, signingKey);
+  });
+}
+
+jwt.verify(token, getKey, {
+  audience: 'my-service',
+  issuer: 'https://verifier.example.org'
+}, (err, decoded) => {
+  if (err) {
+    console.error('Token verification failed:', err);
+  } else {
+    console.log('Token verified:', decoded);
+  }
+});
+```
+
+```python Python
+import jwt
+import requests
+from jwt import PyJWKClient
+
+jwks_url = 'https://verifier.example.org/.well-known/jwks'
+jwks_client = PyJWKClient(jwks_url)
+
+def verify_token(token):
+    signing_key = jwks_client.get_signing_key_from_jwt(token)
+    
+    data = jwt.decode(
+        token,
+        signing_key.key,
+        algorithms=["ES256", "RS256"],
+        audience="my-service",
+        issuer="https://verifier.example.org"
+    )
+    
+    return data
+```
+</CodeGroup>
+
+## Related Endpoints
+
+- [Authentication Response](/api/authentication-response) - Submit credentials
+- [JWKS Endpoint](/api/jwks) - Retrieve public keys for token verification
+- [OpenID Configuration](/api/openid-configuration) - Get provider metadata

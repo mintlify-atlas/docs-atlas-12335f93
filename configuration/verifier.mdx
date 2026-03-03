@@ -1,0 +1,288 @@
+---
+title: Verifier Configuration
+description: Configure the core verifier functionality including DID, keys, validation modes, and session settings
+---
+
+## Core Verifier Settings
+
+The `verifier` section configures the core functionality of the VCVerifier.
+
+### Identity Configuration
+
+<ParamField path="verifier.did" type="string" required>
+  Decentralized Identifier (DID) to be used by the verifier. This is the verifier's identity in the SIOP-2/OIDC4VP flow.
+  
+  ```yaml
+  verifier:
+    did: did:key:z6MkigCEnopwujz8Ten2dzq91nvMjqbKQYcifuZhqBsEkH7g
+  ```
+</ParamField>
+
+### Client Identification
+
+For `byReference` and `byValue` request modes, configure how the verifier identifies itself:
+
+<ParamField path="verifier.clientIdentification.id" type="string">
+  Identification used when requesting authorization. Can be a DID or other methods like `x509_san_dns`.
+  
+  ```yaml
+  verifier:
+    clientIdentification:
+      id: did:key:myverifier
+  ```
+</ParamField>
+
+<ParamField path="verifier.clientIdentification.keyPath" type="string">
+  Path to the signing key in PEM format for request objects. Must correspond with the configured `id`.
+</ParamField>
+
+<ParamField path="verifier.clientIdentification.requestKeyAlgorithm" type="string">
+  Algorithm to be used for signing the request. Must match the signing key type (e.g., `RS256`, `ES256`).
+</ParamField>
+
+<ParamField path="verifier.clientIdentification.certificatePath" type="string">
+  Path to the certificate chain to include in the request object. Required when using `x509_san_dns` identification.
+</ParamField>
+
+<ParamField path="verifier.clientIdentification.kid" type="string">
+  Key ID to use when the certificate doesn't include one. If both certificate and kid are missing, the `id` is used.
+</ParamField>
+
+## Request Modes
+
+<ParamField path="verifier.supportedModes" type="string[]" default='["urlEncoded"]'>
+  Supported modes for requesting authentication. Multiple modes can be enabled simultaneously.
+  
+  Available modes:
+  - `urlEncoded` - Parameters passed directly in the URL
+  - `byValue` - Request object passed as a signed JWT value
+  - `byReference` - Request object passed by reference URL
+  
+  ```yaml
+  verifier:
+    supportedModes: ["urlEncoded", "byReference", "byValue"]
+  ```
+</ParamField>
+
+<Note>
+  For `byReference` and `byValue` modes, the `clientIdentification` section must be properly configured with signing keys.
+</Note>
+
+<Accordion title="Request Mode Details">
+  **urlEncoded**: Simple mode where all parameters are in the URL. Suitable for testing but can create large QR codes.
+  
+  **byValue**: Request parameters are encoded as a signed JWT and passed in the URL. More secure but still creates large QR codes.
+  
+  **byReference**: Request object is hosted by the verifier and referenced by URL. Recommended for production as it creates smaller QR codes.
+</Accordion>
+
+## Trust and Validation
+
+<ParamField path="verifier.tirAddress" type="string">
+  Address of the EBSI-compliant Trusted Issuers Registry for verifying credential issuers.
+  
+  ```yaml
+  verifier:
+    tirAddress: https://tir-pdc.ebsi.fiware.dev
+  ```
+</ParamField>
+
+<ParamField path="verifier.tirCacheExpiry" type="integer" default="30">
+  Expiry time in seconds for Trusted Issuers Registry cache entries.
+</ParamField>
+
+<ParamField path="verifier.tilCacheExpiry" type="integer" default="30">
+  Expiry time in seconds for Trusted Issuers List cache entries.
+</ParamField>
+
+<ParamField path="verifier.validationMode" type="string" default="none">
+  Validation mode for credential content validation (not verification).
+  
+  Available modes:
+  - `none` - No validation, accept all credentials
+  - `combined` - JSON-LD and schema validation
+  - `jsonLd` - JSON-LD parser validation
+  - `baseContext` - Validates only expected fields are present
+  
+  ```yaml
+  verifier:
+    validationMode: "combined"
+  ```
+</ParamField>
+
+<Warning>
+  The default `validationMode: "none"` is set for backwards compatibility. For production, consider using `combined` or `jsonLd` for stronger validation.
+</Warning>
+
+## Session Configuration
+
+<ParamField path="verifier.sessionExpiry" type="integer" default="30">
+  Expiry time in seconds for authentication sessions. After this time, a new flow must be initiated.
+  
+  ```yaml
+  verifier:
+    sessionExpiry: 60
+  ```
+</ParamField>
+
+<ParamField path="verifier.requestScope" type="string">
+  Default scope (credential type) to request from the wallet if not configured per-service.
+</ParamField>
+
+## Key Configuration
+
+<ParamField path="verifier.keyAlgorithm" type="string" default="RS256">
+  Algorithm for JWT signature generation. Supported values:
+  - `RS256` - RSA with SHA-256
+  - `ES256` - ECDSA with SHA-256
+  
+  ```yaml
+  verifier:
+    keyAlgorithm: "ES256"
+  ```
+</ParamField>
+
+<ParamField path="verifier.generateKey" type="boolean" default="true">
+  When `true`, generates a private key on startup. The key is kept in memory and not persisted.
+  
+  Set to `false` to use a key from `keyPath` instead.
+  
+  ```yaml
+  verifier:
+    generateKey: false
+    keyPath: "/etc/keys/verifier-key.pem"
+  ```
+</ParamField>
+
+<ParamField path="verifier.keyPath" type="string">
+  Path to the private key in PEM format for JWT signatures. Only used when `generateKey: false`.
+</ParamField>
+
+<ParamField path="verifier.jwtExpiration" type="integer" default="30">
+  Expiration time in minutes for generated JWT tokens.
+  
+  ```yaml
+  verifier:
+    jwtExpiration: 60  # 1 hour
+  ```
+</ParamField>
+
+<Accordion title="Key Management Best Practices">
+  For development and testing:
+  - Use `generateKey: true` for quick setup
+  - Keys are regenerated on each restart
+  
+  For production:
+  - Set `generateKey: false`
+  - Provide a persistent key via `keyPath`
+  - Store keys securely (e.g., Kubernetes secrets, HashiCorp Vault)
+  - Rotate keys periodically
+  - Use `ES256` for better performance and smaller signatures
+</Accordion>
+
+## Authorization Endpoint
+
+<ParamField path="verifier.authorizationEndpoint" type="string">
+  Path of the authorization endpoint to be provided in the `.well-known/openid-configuration` response.
+  
+  ```yaml
+  verifier:
+    authorizationEndpoint: "/api/v1/authorize"
+  ```
+</ParamField>
+
+## Complete Example
+
+```yaml
+verifier:
+  did: did:key:z6MkigCEnopwujz8Ten2dzq91nvMjqbKQYcifuZhqBsEkH7g
+  
+  clientIdentification:
+    id: did:key:z6MkigCEnopwujz8Ten2dzq91nvMjqbKQYcifuZhqBsEkH7g
+    keyPath: "/etc/keys/request-signing-key.pem"
+    requestKeyAlgorithm: "ES256"
+  
+  supportedModes: ["urlEncoded", "byReference", "byValue"]
+  
+  tirAddress: https://tir-pdc.ebsi.fiware.dev
+  tirCacheExpiry: 60
+  tilCacheExpiry: 60
+  
+  sessionExpiry: 30
+  validationMode: "combined"
+  
+  keyAlgorithm: "ES256"
+  generateKey: false
+  keyPath: "/etc/keys/jwt-signing-key.pem"
+  jwtExpiration: 60
+  
+  authorizationEndpoint: "/api/v1/authorize"
+```
+
+## M2M Configuration
+
+For Machine-to-Machine authentication scenarios:
+
+<ParamField path="m2m.authEnabled" type="boolean" default="false">
+  Enable authentication for M2M interactions.
+</ParamField>
+
+<ParamField path="m2m.keyPath" type="string">
+  Path to the signing key in PEM format for M2M authentication.
+</ParamField>
+
+<ParamField path="m2m.credentialPath" type="string">
+  Path to the credential to be used for M2M authentication.
+</ParamField>
+
+<ParamField path="m2m.clientId" type="string">
+  Client ID of the verifier when retrieving M2M tokens.
+</ParamField>
+
+<ParamField path="m2m.verificationMethod" type="string" default="JsonWebKey2020">
+  Verification method for the linked data proof.
+</ParamField>
+
+<ParamField path="m2m.signatureType" type="string" default="JsonWebSignature2020">
+  Signature type for the linked data proof.
+</ParamField>
+
+<ParamField path="m2m.keyType" type="string" default="RSAPS256">
+  Type of the provided M2M key.
+</ParamField>
+
+## ELSI Support
+
+For did:elsi support with JAdES signatures:
+
+<ParamField path="elsi.enabled" type="boolean" default="false">
+  Enable support for did:elsi identifiers.
+  
+  ```yaml
+  elsi:
+    enabled: true
+  ```
+</ParamField>
+
+<ParamField path="elsi.validationEndpoint.host" type="string">
+  Host of the validation service for JAdES signatures.
+</ParamField>
+
+<ParamField path="elsi.validationEndpoint.validationPath" type="string" default="/validateSignature">
+  Path to the signature validation endpoint.
+</ParamField>
+
+<ParamField path="elsi.validationEndpoint.healthPath" type="string" default="/q/health/ready">
+  Path to the health check endpoint of the validation service.
+</ParamField>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Credentials Configuration" icon="key" href="/configuration/credentials-config">
+    Configure trust anchors and credential scopes
+  </Card>
+  <Card title="Server Configuration" icon="server" href="/configuration/server">
+    Configure HTTP server and logging
+  </Card>
+</CardGroup>

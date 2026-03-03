@@ -1,0 +1,158 @@
+---
+title: Server Configuration
+description: Configure HTTP server settings, templates, static files, and logging
+---
+
+## Server Settings
+
+The `server` section configures the HTTP server that exposes the VCVerifier API endpoints.
+
+### Basic Configuration
+
+<ParamField path="server.host" type="string">
+  Hostname of the verifier. Used for generating callback URLs and in OpenID configuration.
+</ParamField>
+
+<ParamField path="server.port" type="integer" default="8080">
+  Port to bind the HTTP server to.
+  
+  ```yaml
+  server:
+    port: 8080
+  ```
+</ParamField>
+
+<ParamField path="server.templateDir" type="string" default="views/">
+  Directory to load HTML template pages from. See [Templating](/configuration/templating) for customization options.
+  
+  ```yaml
+  server:
+    templateDir: "views/"
+  ```
+</ParamField>
+
+<ParamField path="server.staticDir" type="string" default="views/static/">
+  Directory to serve static content from (CSS, JavaScript, images). Files are served at the `/static` path.
+  
+  ```yaml
+  server:
+    staticDir: "views/static/"
+  ```
+</ParamField>
+
+### Timeout Configuration
+
+<ParamField path="server.readTimeout" type="integer" default="5">
+  Maximum duration (in seconds) for reading the entire request, including the body.
+</ParamField>
+
+<ParamField path="server.writeTimeout" type="integer" default="10">
+  Maximum duration (in seconds) before timing out writes of the response.
+</ParamField>
+
+<ParamField path="server.idleTimeout" type="integer" default="120">
+  Maximum amount of time (in seconds) to wait for the next request when keep-alives are enabled.
+</ParamField>
+
+<ParamField path="server.shutdownTimeout" type="integer" default="5">
+  Time allowed (in seconds) for active requests to finish during graceful shutdown.
+</ParamField>
+
+## Logging Configuration
+
+The `logging` section controls log output format and verbosity.
+
+<ParamField path="logging.level" type="string" default="INFO">
+  Log level for the application. Accepted values:
+  - `DEBUG` - Detailed debugging information
+  - `INFO` - General informational messages
+  - `WARN` - Warning messages
+  - `ERROR` - Error messages only
+  
+  ```yaml
+  logging:
+    level: "INFO"
+  ```
+</ParamField>
+
+<ParamField path="logging.jsonLogging" type="boolean" default="false">
+  When `true`, outputs logs in structured JSON format. Recommended for production environments and log aggregation systems.
+  
+  ```yaml
+  logging:
+    jsonLogging: true
+  ```
+</ParamField>
+
+<ParamField path="logging.logRequests" type="boolean" default="false">
+  When `true`, logs all incoming HTTP requests including method, path, and response status.
+  
+  ```yaml
+  logging:
+    logRequests: true
+  ```
+</ParamField>
+
+<ParamField path="logging.pathsToSkip" type="string[]">
+  List of paths to exclude from request logging. Useful for omitting health check endpoints from logs.
+  
+  ```yaml
+  logging:
+    logRequests: true
+    pathsToSkip:
+      - "/health"
+      - "/metrics"
+  ```
+</ParamField>
+
+## Complete Example
+
+```yaml
+server:
+  host: "verifier.example.com"
+  port: 8080
+  templateDir: "custom-views/"
+  staticDir: "custom-views/static/"
+  readTimeout: 10
+  writeTimeout: 15
+  idleTimeout: 120
+  shutdownTimeout: 10
+
+logging:
+  level: "INFO"
+  jsonLogging: true
+  logRequests: true
+  pathsToSkip:
+    - "/health"
+    - "/q/health/ready"
+```
+
+## Production Recommendations
+
+<Warning>
+  In production environments:
+  - Enable `jsonLogging` for structured log parsing
+  - Set `level` to `INFO` or `WARN` to reduce log volume
+  - Configure `pathsToSkip` to exclude health check endpoints
+  - Adjust timeout values based on your network characteristics
+</Warning>
+
+<Accordion title="Reverse Proxy Configuration">
+  When running behind a reverse proxy (nginx, Apache, etc.):
+  
+  1. Configure the `host` field with your public domain name
+  2. Ensure the proxy forwards the original host header
+  3. Configure appropriate timeout values that match your proxy settings
+  4. Consider terminating TLS at the proxy level
+</Accordion>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Verifier Configuration" icon="shield-check" href="/configuration/verifier">
+    Configure DID, keys, and validation modes
+  </Card>
+  <Card title="Templating" icon="palette" href="/configuration/templating">
+    Customize the login page appearance
+  </Card>
+</CardGroup>

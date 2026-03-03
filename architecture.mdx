@@ -1,0 +1,650 @@
+---
+title: Architecture
+description: Understanding VCVerifier's system design and verification flow
+---
+
+## System overview
+
+VCVerifier acts as a Relying Party in SIOP-2/OIDC4VP authentication flows, sitting between user-facing applications and backend services. It verifies Verifiable Credentials and issues JWTs that downstream services can use for authorization.
+
+### High-level architecture
+
+The following diagram illustrates a typical deployment of VCVerifier in a Human-to-Machine (H2M) authentication flow:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Frontend
+    participant VCVerifier
+    participant Wallet
+    participant ConfigService
+    participant TIR as Trusted Issuers Registry
+    participant Backend
+
+    User->>Frontend: 1. Access application
+    Frontend->>VCVerifier: 2. Request login QR
+    VCVerifier->>ConfigService: 3a. Get scope config
+    ConfigService-->>VCVerifier: Credential requirements
+    VCVerifier-->>Frontend: 3b. Display QR code
+    User->>Wallet: 4. Scan QR code
+    Wallet->>VCVerifier: 5. Present credential
+    VCVerifier->>TIR: 6a. Verify issuer
+    TIR-->>VCVerifier: Issuer trusted
+    VCVerifier->>VCVerifier: 6b. Verify credential
+    VCVerifier-->>Frontend: 7. Callback with code
+    Frontend->>VCVerifier: 8. Exchange code for JWT
+    VCVerifier-->>Frontend: JWT with verified credential
+    Frontend->>Backend: 9. API request with JWT
+    Backend->>VCVerifier: 10. Get JWKS
+    VCVerifier-->>Backend: Public keys
+    Backend->>Backend: 11. Verify JWT & authorize
+```
+
+### Key interactions
+
+<Steps>
+  <Step title="Authentication initiation">
+    The frontend redirects the user to VCVerifier's login page, which generates a QR code containing an `openid4vp://` connection string.
+  </Step>
+  
+  <Step title="Scope configuration">
+    VCVerifier retrieves the required credential scopes and trust configuration from the Config Service.
+  </Step>
+  
+  <Step title="Credential presentation">
+    The user scans the QR code with their wallet, which presents the Verifiable Credential back to VCVerifier.
+  </Step>
+  
+  <Step title="Multi-layer verification">
+    VCVerifier performs comprehensive verification including signature validation, trust registry checks, and policy enforcement.
+  </Step>
+  
+  <Step title="JWT issuance">
+    After successful verification, VCVerifier creates a signed JWT containing the verified credential and notifies the frontend via callback.
+  </Step>
+  
+  <Step title="Token exchange">
+    The frontend exchanges the authorization code for the actual JWT token via the token endpoint.
+  </Step>
+  
+  <Step title="Downstream authorization">
+    Backend services verify the JWT using VCVerifier's public keys (JWKS) and make authorization decisions based on the credential contents.
+  </Step>
+</Steps>
+
+## Core components
+
+### Verifier engine
+
+The main verification engine is implemented in the `CredentialVerifier` struct:
+
+```go
+type CredentialVerifier struct {
+    host                  string
+    did                   string
+    tirAddress            string
+    signingKey            jwk.Key
+    sessionCache          common.Cache
+    tokenCache            common.Cache
+    nonceGenerator        NonceGenerator
+    clock                 common.Clock
+    tokenSigner           common.TokenSigner
+    credentialsConfig     CredentialsConfig
+    validationServices    []ValidationService
+    signingAlgorithm      string
+    supportedRequestModes []string
+    // ... additional fields
+}
+```
+
+**Key responsibilities:**
+- Manages authentication sessions
+- Generates QR codes and authentication requests
+- Orchestrates credential verification
+- Issues and signs JWTs
+- Provides JWKS for token verification
+
+### Validation services
+
+VCVerifier uses a plugin-based validation architecture:
+
+<CardGroup cols={2}>
+  <Card title="TrustBloc Validator" icon="check-circle">
+    Validates credential structure, JSON-LD context, and cryptographic signatures using the Trustbloc vc-go library.
+  </Card>
+  
+  <Card title="Trusted Participant Service" icon="users">
+    Verifies that credentials are registered in configured trusted participants registries (EBSI or Gaia-X).
+  </Card>
+  
+  <Card title="Trusted Issuer Service" icon="stamp">
+    Checks that the issuer is authorized to issue credentials with the given claims.
+  </Card>
+  
+  <Card title="Gaia-X Validator" icon="shield-check">
+    Validates Gaia-X compliance credentials and participant chains.
+  </Card>
+</CardGroup>
+
+### Session management
+
+VCVerifier maintains two in-memory caches:
+
+**Session cache**: Stores active authentication sessions:
+```go
+type loginSession struct {
+    callback      string  // Callback URL to notify
+    sessionId     string  // Client session identifier
+    nonce         string  // Cryptographic nonce
+    clientId      string  // Service identifier
+    requestObject string  // Signed request JWT
+    version       int     // Flow version (v1/v2)
+    scope         string  // Requested credential scope
+}
+```
+
+**Token cache**: Temporarily stores JWT tokens for retrieval:
+```go
+type tokenStore struct {
+    token        jwt.Token  // The signed JWT
+    redirect_uri string     // Original redirect URI
+}
+```
+
+<Info>
+Both caches use configurable TTL (Time To Live) based on the `sessionExpiry` configuration parameter.
+</Info>
+
+### Presentation parser
+
+The presentation parser handles multiple credential formats:
+
+```go
+type ConfigurablePresentationParser struct {
+    PresentationOpts []verifiable.PresentationOpt
+}
+
+type ConfigurableSdJwtParser struct {
+    ParserOpts []sdv.ParseOpt
+}
+```
+
+**Supported formats:**
+- JSON-LD Verifiable Presentations
+- SD-JWT (Selective Disclosure JWT) credentials
+- JAdES signatures (with ELSI integration)
+
+## Authentication flows
+
+### Cross-device flow (QR code)
+
+The most common flow for H2M scenarios:
+
+<Steps>
+  <Step title="QR generation">
+    ```go
+    func (v *CredentialVerifier) ReturnLoginQR(
+        host, protocol, callback, sessionId, clientId, nonce, requestMode string,
+    ) (qr string, err error)
+    ```
+    
+    Generates a QR code encoding the authentication request. Supports three request modes:
+    - `urlEncoded`: Parameters in URL
+    - `byValue`: Signed JWT in request parameter
+    - `byReference`: JWT retrieved via request_uri
+  </Step>
+  
+  <Step title="Wallet interaction">
+    The wallet:
+    1. Scans the QR code
+    2. Parses the authentication request
+    3. Prompts user for approval
+    4. Creates a Verifiable Presentation
+    5. POSTs to the `authentication_response` endpoint
+  </Step>
+  
+  <Step title="Verification">
+    ```go
+    func (v *CredentialVerifier) AuthenticationResponse(
+        state string,
+        verifiablePresentation *verifiable.Presentation,
+    ) (sameDevice Response, err error)
+    ```
+    
+    Verifies the presentation and stores a JWT in the token cache.
+  </Step>
+  
+  <Step title="Callback notification">
+    VCVerifier calls the `client_callback` URL with `state` and authorization `code`:
+    ```
+    GET https://my-app.com/callback?state=session-123&code=auth-code-xyz
+    ```
+  </Step>
+</Steps>
+
+### Same-device flow
+
+For scenarios where the credential is already in the browser:
+
+```go
+func (v *CredentialVerifier) StartSameDeviceFlow(
+    host, protocol, state, redirectPath, clientId, nonce, requestMode, scope, requestProtocol string,
+) (authenticationRequest string, err error)
+```
+
+<Steps>
+  <Step title="Direct redirect">
+    Returns an `openid4vp://` or HTTP redirect URL directly (no QR code).
+  </Step>
+  
+  <Step title="Browser handling">
+    The browser or credential handler intercepts the `openid4vp://` protocol.
+  </Step>
+  
+  <Step title="Credential presentation">
+    The credential is automatically presented without additional user interaction.
+  </Step>
+  
+  <Step title="Immediate response">
+    Returns a response object with redirect information:
+    ```go
+    type Response struct {
+        FlowVersion    int
+        RedirectTarget string
+        Code           string
+        SessionId      string
+        Nonce          string
+    }
+    ```
+  </Step>
+</Steps>
+
+## Verification process
+
+The credential verification process involves multiple stages:
+
+### 1. Credential extraction
+
+```go
+func extractCredentialTypes(verifiablePresentation *verifiable.Presentation) (
+    credentialsByType map[string][]*verifiable.Credential,
+    credentialTypes []string,
+)
+```
+
+Extracts all credentials from the presentation and indexes them by type.
+
+### 2. Validation context creation
+
+```go
+type TrustRegistriesValidationContext struct {
+    trustedIssuersLists           map[string][]string
+    trustedParticipantsRegistries map[string][]configModel.TrustedParticipantsList
+}
+```
+
+Builds a validation context containing:
+- Trusted Issuers Lists for each credential type
+- Trusted Participants Registries
+- Required credential types for the scope
+
+### 3. Sequential validation
+
+Each credential is validated through multiple services:
+
+```go
+for _, verificationService := range v.validationServices {
+    result, err := verificationService.ValidateVC(credential, verificationContext)
+    if err != nil || !result {
+        return ErrorInvalidVC
+    }
+}
+```
+
+<Tabs>
+  <Tab title="Structure validation">
+    **TrustBloc Validator**
+    - JSON-LD context validation
+    - Schema validation
+    - Cryptographic signature verification
+    - Proof validation
+  </Tab>
+  
+  <Tab title="Trust validation">
+    **Trusted Participant/Issuer Services**
+    - Queries trust registries (EBSI TIR or Gaia-X)
+    - Verifies issuer is in trusted list
+    - Checks issuer is authorized for credential type
+    - Validates participant registration
+  </Tab>
+  
+  <Tab title="Holder validation">
+    **Holder Verification**
+    - Checks credential subject matches presentation holder
+    - Validates holder DIDs
+    - Ensures holder authorization
+  </Tab>
+  
+  <Tab title="Compliance validation">
+    **Gaia-X Compliance** (optional)
+    - Validates compliance credentials
+    - Checks credential chains
+    - Verifies integrity values
+  </Tab>
+</Tabs>
+
+### 4. JWT generation
+
+```go
+func (v *CredentialVerifier) generateJWT(
+    credentials []map[string]interface{},
+    holder string,
+    audience string,
+    flatValues bool,
+) (jwt.Token, error)
+```
+
+After successful verification:
+
+<Steps>
+  <Step title="Build JWT claims">
+    ```json
+    {
+      "iss": "https://verifier.example.com",
+      "sub": "did:key:holder-did",
+      "aud": "my-app.example.com",
+      "exp": 1234567890,
+      "verifiableCredential": { /* credential */ }
+    }
+    ```
+  </Step>
+  
+  <Step title="Sign with private key">
+    Uses ES256 or RS256 algorithm:
+    ```go
+    jwtBytes, err := v.tokenSigner.Sign(
+        token,
+        jwt.WithKey(signatureAlgorithm, v.signingKey),
+    )
+    ```
+  </Step>
+  
+  <Step title="Store with authorization code">
+    Caches the JWT for token endpoint retrieval:
+    ```go
+    authorizationCode := v.nonceGenerator.GenerateNonce()
+    v.tokenCache.Add(authorizationCode, tokenStore{token, redirect_uri})
+    ```
+  </Step>
+</Steps>
+
+## Request modes
+
+VCVerifier supports three modes for authentication requests, following RFC9101:
+
+### URL encoded mode
+
+Parameters passed directly in the URL:
+
+```
+openid4vp://?response_type=vp_token
+  &response_mode=direct_post
+  &client_id=did:key:z6MkigC...
+  &redirect_uri=https://verifier.org/api/v1/authentication_response
+  &state=randomState
+  &nonce=randomNonce
+```
+
+<Warning>
+This mode can result in very long URLs, making QR codes difficult to scan.
+</Warning>
+
+### By value mode
+
+Request parameters encoded in a signed JWT:
+
+```
+openid4vp://?client_id=did:key:verifier&request=eyJhbGciOiJFUzI1NiIsInR5cCI6Im9hdXRoLWF1dGh6LXJlcStqd3QifQ.eyJjbGllbnRfaWQiOiJkaWQ6a2V5OnZlcmlmaWVyIiwiZXhwIjozMCwiaXNzIjoiZGlkOmtleTp2ZXJpZmllciIsIm5vbmNlIjoicmFuZG9tTm9uY2UiLCAuLi59.Z0xv_E9vvhRN2nBeKQ49LgH8lkjkX-weR7R5eCmX9ebGr1aE8_6usa2PO9nJ4LRv8oWMg0q9fsQ2x5DTYbvLdA
+```
+
+The JWT payload contains:
+```json
+{
+  "alg": "ES256",
+  "typ": "oauth-authz-req+jwt"
+}
+{
+  "client_id": "did:key:verifier",
+  "iss": "did:key:verifier",
+  "exp": 30,
+  "response_type": "vp_token",
+  "response_mode": "direct_post",
+  "redirect_uri": "https://verifier.org/api/v1/authentication_response",
+  "state": "randomState",
+  "nonce": "randomNonce",
+  "presentation_definition": { /* ... */ }
+}
+```
+
+### By reference mode (recommended)
+
+Request object retrieved via HTTP:
+
+```
+openid4vp://?client_id=did:key:verifier
+  &request_uri=https://verifier.org/api/v1/request/randomState
+  &request_uri_method=get
+```
+
+The wallet fetches the signed request JWT:
+```bash
+curl https://verifier.org/api/v1/request/randomState
+```
+
+<Info>
+This mode is recommended for QR code flows as it produces the smallest QR codes.
+</Info>
+
+## Trust anchor integration
+
+VCVerifier supports multiple trust registry types:
+
+### EBSI Trusted Issuers Registry
+
+Compatible with the European Blockchain Services Infrastructure:
+
+```yaml
+configRepo:
+  services:
+    testService:
+      oidcScopes:
+        default:
+          credentials:
+            - type: VerifiableCredential
+              trustedParticipantsLists:
+                VerifiableCredential:
+                  - type: ebsi
+                    url: https://tir-pdc.ebsi.fiware.dev
+```
+
+### Gaia-X Registry
+
+Integrates with Gaia-X Digital Clearing House:
+
+```yaml
+configRepo:
+  services:
+    testService:
+      oidcScopes:
+        default:
+          credentials:
+            - type: VerifiableCredential
+              trustedParticipantsLists:
+                VerifiableCredential:
+                  - type: gaia-x
+                    url: https://registry.lab.gaia-x.eu
+```
+
+<Note>
+Gaia-X registries require `did:web` issuers with valid `x5u` locations in their `publicKeyJwk`.
+</Note>
+
+### Mixed trust anchors
+
+Combine multiple registries - issuer is trusted if found in any:
+
+```yaml
+trustedParticipantsLists:
+  VerifiableCredential:
+    - type: ebsi
+      url: https://tir-pdc.ebsi.fiware.dev
+    - type: gaia-x
+      url: https://registry.lab.gaia-x.eu
+```
+
+## Security considerations
+
+<CardGroup cols={2}>
+  <Card title="Key management" icon="key">
+    - Private keys can be generated on startup or loaded from PEM files
+    - Keys are kept in memory only (not persisted to disk)
+    - Supports ES256 and RS256 signing algorithms
+  </Card>
+  
+  <Card title="Nonce generation" icon="random">
+    - Cryptographically secure random nonces
+    - Prevents replay attacks
+    - Validates nonce in presentation responses
+  </Card>
+  
+  <Card title="Session management" icon="clock">
+    - Configurable session expiry (default 30 seconds)
+    - Automatic cache cleanup
+    - One-time token retrieval
+  </Card>
+  
+  <Card title="Trust validation" icon="shield">
+    - Multiple trust registries
+    - Issuer authorization checks
+    - Credential type validation
+  </Card>
+</CardGroup>
+
+## Performance and scalability
+
+### Caching strategy
+
+- **In-memory caching**: Fast session and token storage using go-cache
+- **Document loader caching**: JSON-LD contexts cached to reduce network requests
+- **Trust registry caching**: Optional caching of trust registry responses
+
+### Stateless design
+
+VCVerifier can scale horizontally with session affinity or shared cache:
+
+```yaml
+# Example: Redis-backed session cache (requires custom implementation)
+sessionCache:
+  backend: redis
+  url: redis://cache:6379
+  ttl: 30s
+```
+
+<Warning>
+The default in-memory cache requires sticky sessions in load-balanced deployments.
+</Warning>
+
+## API server
+
+Implemented using the Gin web framework:
+
+```go
+func main() {
+    configuration, _ := configModel.ReadConfig(configFile)
+    logging.Configure(configuration.Logging)
+    
+    verifier.InitVerifier(&configuration)
+    verifier.InitPresentationParser(&configuration, Health())
+    
+    router := getRouter()
+    router.GET("/health", HealthReq)
+    
+    srv := &http.Server{
+        Addr:         fmt.Sprintf("0.0.0.0:%v", configuration.Server.Port),
+        Handler:      router,
+        ReadTimeout:  time.Duration(configuration.Server.ReadTimeout) * time.Second,
+        WriteTimeout: time.Duration(configuration.Server.WriteTimeout) * time.Second,
+    }
+    
+    srv.ListenAndServe()
+}
+```
+
+**Features:**
+- CORS support for wallet integration
+- Request logging with path exclusions
+- Prometheus metrics at `/metrics`
+- Graceful shutdown
+- Health check endpoint
+
+## Deployment architecture
+
+### Minimal deployment
+
+```
+┌─────────────┐
+│  Frontend   │
+└──────┬──────┘
+       │
+┌──────▼──────┐
+│ VCVerifier  │
+└──────┬──────┘
+       │
+┌──────▼──────┐
+│  EBSI TIR   │
+└─────────────┘
+```
+
+### Production deployment
+
+```
+┌─────────────┐       ┌─────────────┐
+│  Frontend   │◄──────┤   Backend   │
+└──────┬──────┘       └──────┬──────┘
+       │                     │
+       │              ┌──────▼──────┐
+       │              │Authorization│
+       │              └──────┬──────┘
+       │                     │
+┌──────▼─────────────────────▼──────┐
+│         VCVerifier (HA)           │
+│  ┌──────┐  ┌──────┐  ┌──────┐    │
+│  │Inst 1│  │Inst 2│  │Inst 3│    │
+│  └───┬──┘  └───┬──┘  └───┬──┘    │
+└──────┼─────────┼─────────┼────────┘
+       │         │         │
+┌──────▼─────────▼─────────▼────────┐
+│      Shared Session Cache         │
+└──────┬───────────────────┬────────┘
+       │                   │
+┌──────▼──────┐   ┌────────▼────────┐
+│Config Service   │  Trust Registries│
+└─────────────┘   └─────────────────┘
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration Guide" icon="gear" href="/configuration">
+    Learn how to configure verification policies and trust anchors
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference">
+    Explore the complete API specification
+  </Card>
+  <Card title="Deployment Guide" icon="server" href="/deployment">
+    Production deployment best practices
+  </Card>
+  <Card title="Integration Examples" icon="puzzle-piece" href="/examples">
+    Sample code for common integration patterns
+  </Card>
+</CardGroup>

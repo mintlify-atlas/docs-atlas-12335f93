@@ -1,0 +1,338 @@
+---
+title: Gaia-X Registry Integration
+description: Configure Gaia-X Digital Clearing House Registry for participant verification
+---
+
+## Overview
+
+The [Gaia-X Digital Clearing House](https://gaia-x.eu/services-deliverables/digital-clearing-house/) provides registry services for verifying Gaia-X ecosystem participants. VCVerifier integrates with these services to validate that credential issuers are compliant Gaia-X participants.
+
+## Gaia-X Participant Requirements
+
+<Warning>
+  Gaia-X Registry verification has specific requirements for issuer DIDs. Not all DID methods are supported.
+</Warning>
+
+To be verified through a Gaia-X Registry, issuers must:
+
+1. **Use `did:web` method only** - Other DID methods are not supported
+2. **Provide valid `x5u` location** - The DID document must include an `x5u` (X.509 URL) field in the `publicKeyJwk`
+3. **Maintain accessible certificate chain** - The certificate chain must be available at the `x5u` URL
+4. **Meet Gaia-X compliance requirements** - The participant must fulfill Gaia-X ecosystem standards
+
+## Configuration
+
+### Basic Configuration
+
+Configure Gaia-X Registry verification for your credential types:
+
+```yaml
+configRepo:
+  services:
+    testService:
+      scope:
+        - VerifiableCredential
+      trustedParticipants:
+        VerifiableCredential:
+          - type: gaia-x
+            url: https://registry.lab.gaia-x.eu
+```
+
+### Multiple Credential Types
+
+Apply Gaia-X verification to different credential types:
+
+```yaml
+configRepo:
+  services:
+    testService:
+      scope:
+        - VerifiableCredential
+        - GaiaXCredential
+        - ParticipantCredential
+      trustedParticipants:
+        VerifiableCredential:
+          - type: gaia-x
+            url: https://registry.lab.gaia-x.eu
+        GaiaXCredential:
+          - type: gaia-x
+            url: https://registry.lab.gaia-x.eu
+        ParticipantCredential:
+          - type: gaia-x
+            url: https://registry.lab.gaia-x.eu
+```
+
+## Verification Process
+
+The Gaia-X verification process is more complex than EBSI TIR verification due to certificate chain validation:
+
+<Steps>
+  <Step title="Credential Received">
+    VCVerifier receives a credential with a `did:web` issuer
+  </Step>
+  
+  <Step title="Resolve DID Document">
+    The issuer's DID document is resolved using the `did:web` method:
+    ```
+    did:web:example.com:issuer → https://example.com/.well-known/did.json
+    ```
+  </Step>
+  
+  <Step title="Extract Verification Method">
+    VCVerifier extracts the verification method from the DID document and retrieves the JSON Web Key (JWK)
+  </Step>
+  
+  <Step title="Get Certificate URL (x5u)">
+    The `x5u` field from the JWK points to the certificate chain location:
+    ```json
+    {
+      "kty": "RSA",
+      "x5u": "https://example.com/certs/issuer.pem",
+      "use": "sig",
+      ...
+    }
+    ```
+  </Step>
+  
+  <Step title="Verify Certificate Chain">
+    VCVerifier sends the certificate chain URL to the Gaia-X Registry:
+    ```bash
+    POST /v2/api/trustAnchor/chain/file
+    Content-Type: application/json
+    
+    {"uri": "https://example.com/certs/issuer.pem"}
+    ```
+  </Step>
+  
+  <Step title="Evaluate Response">
+    - **HTTP 200**: Certificate chain is trusted, issuer is verified
+    - **Other codes**: Certificate chain is not trusted, verification fails
+  </Step>
+</Steps>
+
+## DID Document Requirements
+
+A valid Gaia-X-compatible DID document must include:
+
+```json
+{
+  "@context": [
+    "https://www.w3.org/ns/did/v1",
+    "https://w3id.org/security/suites/jws-2020/v1"
+  ],
+  "id": "did:web:example.com:issuer",
+  "verificationMethod": [
+    {
+      "id": "did:web:example.com:issuer#key-1",
+      "type": "JsonWebKey2020",
+      "controller": "did:web:example.com:issuer",
+      "publicKeyJwk": {
+        "kty": "RSA",
+        "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx...",
+        "e": "AQAB",
+        "alg": "RS256",
+        "x5u": "https://example.com/certs/issuer.pem"
+      }
+    }
+  ]
+}
+```
+
+<Note>
+  The `x5u` field is **required** for Gaia-X verification. Without it, the verification will fail as VCVerifier cannot locate the certificate chain.
+</Note>
+
+## API Endpoint
+
+The Gaia-X Registry exposes the following endpoint for certificate chain verification:
+
+```
+POST /v2/api/trustAnchor/chain/file
+```
+
+### Request Format
+
+```json
+{
+  "uri": "https://example.com/certs/issuer.pem"
+}
+```
+
+### Response
+
+- **200 OK**: Certificate chain is valid and rooted in a Gaia-X trust anchor
+- **400 Bad Request**: Invalid request format
+- **404 Not Found**: Certificate chain cannot be verified
+- **500 Internal Server Error**: Registry service error
+
+<Warning>
+  According to the Gaia-X Registry specification, all HTTP 200 responses indicate valid certificate chains. VCVerifier does not parse the response body; the status code alone determines trust.
+</Warning>
+
+## Implementation Details
+
+VCVerifier's Gaia-X client implements the following logic:
+
+```go
+// 1. Resolve the DID
+didDocument, err := didRegistry.Resolve(did)
+
+// 2. Find verification method with matching ID or controller
+for _, verificationMethod := range didDocument.VerificationMethod {
+    if verificationMethod.ID == did || verificationMethod.Controller == did {
+        // 3. Extract JWK and get x5u
+        jwk := verificationMethod.JSONWebKey()
+        if jwk.CertificatesURL != nil {
+            x5u := jwk.CertificatesURL.String()
+            
+            // 4. Verify against Gaia-X Registry
+            return verifyFileChain(registryEndpoint, x5u)
+        }
+    }
+}
+```
+
+## Testing Your Configuration
+
+### Verify DID Resolution
+
+Test that your `did:web` can be resolved:
+
+```bash
+# Resolve a did:web
+curl https://example.com/.well-known/did.json
+
+# Should return a valid DID document with verificationMethod
+```
+
+### Verify Certificate Chain
+
+Test the certificate chain verification:
+
+```bash
+# Test Gaia-X Registry verification
+curl -X POST https://registry.lab.gaia-x.eu/v2/api/trustAnchor/chain/file \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{"uri": "https://example.com/certs/issuer.pem"}'
+
+# Expected response: HTTP 200 for valid chains
+```
+
+### Common Issues
+
+<AccordionGroup>
+  <Accordion title="DID Resolution Fails">
+    **Problem**: Cannot resolve `did:web`
+    
+    **Solutions**:
+    - Ensure `.well-known/did.json` is accessible at the correct URL
+    - Check CORS headers if accessing from a browser
+    - Verify the DID document is valid JSON
+    - Confirm the server supports HTTPS (required for production `did:web`)
+  </Accordion>
+  
+  <Accordion title="Missing x5u Field">
+    **Problem**: Verification fails with "x5u not found"
+    
+    **Solutions**:
+    - Add `x5u` field to the `publicKeyJwk` in your DID document
+    - Ensure the certificate chain is accessible at the `x5u` URL
+    - Use proper PEM format for certificate chains
+  </Accordion>
+  
+  <Accordion title="Certificate Chain Not Trusted">
+    **Problem**: Registry returns non-200 response
+    
+    **Solutions**:
+    - Verify your certificate chain is rooted in a Gaia-X trust anchor
+    - Check certificate validity periods
+    - Ensure proper certificate chain order (leaf → intermediate → root)
+    - Contact Gaia-X support to register your certificates
+  </Accordion>
+  
+  <Accordion title="Wrong DID Method">
+    **Problem**: Using `did:key`, `did:ethr`, or other methods
+    
+    **Solution**:
+    - Gaia-X Registry **only supports `did:web`**
+    - Convert your issuer to use `did:web` method
+    - Publish a proper DID document at the web location
+  </Accordion>
+</AccordionGroup>
+
+## Production Considerations
+
+### Certificate Management
+
+<Steps>
+  <Step title="Obtain Gaia-X Certificates">
+    Work with Gaia-X-approved certificate authorities to obtain compliant certificates
+  </Step>
+  
+  <Step title="Publish Certificate Chain">
+    Host your certificate chain at a reliable, HTTPS-accessible URL
+  </Step>
+  
+  <Step title="Update DID Document">
+    Add the `x5u` field pointing to your certificate chain
+  </Step>
+  
+  <Step title="Monitor Expiry">
+    Certificates expire - implement monitoring and renewal processes
+  </Step>
+  
+  <Step title="Test Verification">
+    Regularly test your setup against the Gaia-X Registry
+  </Step>
+</Steps>
+
+### High Availability
+
+- **Multiple Certificate Locations**: Host certificate chains redundantly
+- **Registry Fallback**: Consider configuring multiple Gaia-X Registry instances
+- **Error Handling**: Implement graceful degradation if registry is unavailable
+
+## Registry Endpoints
+
+<CodeGroup>
+```yaml Production
+trustedParticipants:
+  VerifiableCredential:
+    - type: gaia-x
+      url: https://registry.gaia-x.eu
+```
+
+```yaml Lab/Testing
+trustedParticipants:
+  VerifiableCredential:
+    - type: gaia-x
+      url: https://registry.lab.gaia-x.eu
+```
+</CodeGroup>
+
+<Note>
+  Use the lab environment for development and testing. Only move to production endpoints after thorough testing and certification.
+</Note>
+
+## Comparison: Gaia-X vs EBSI TIR
+
+| Feature | Gaia-X Registry | EBSI TIR |
+|---------|----------------|----------|
+| **DID Methods** | Only `did:web` | All methods |
+| **Verification Method** | Certificate chain | DID registry lookup |
+| **Additional Requirements** | x5u in JWK | None |
+| **Certificate Management** | Required | Not required |
+| **Setup Complexity** | Higher | Lower |
+| **Use Case** | Gaia-X ecosystem | General SSI |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Mixed Usage" icon="layer-group" href="./mixed-usage">
+    Combine Gaia-X with EBSI TIR
+  </Card>
+  <Card title="Overview" icon="book" href="./overview">
+    Back to trust anchors overview
+  </Card>
+</CardGroup>

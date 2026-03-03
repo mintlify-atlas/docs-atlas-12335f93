@@ -1,0 +1,514 @@
+---
+title: JWT Generation
+description: How VCVerifier generates and signs JWT tokens from verified credentials
+---
+
+After successfully verifying a Verifiable Presentation, VCVerifier generates a signed JWT token containing the credential data. This JWT can be used for authentication and authorization in downstream services.
+
+## Overview
+
+The JWT generation process:
+1. **Verify credentials**: Validate cryptographic proofs and trust chains
+2. **Extract claims**: Pull relevant data from verified credentials
+3. **Build JWT**: Construct token with standard and custom claims
+4. **Sign token**: Create cryptographic signature with configured key
+5. **Return token**: Provide signed JWT to the client
+
+**Source reference:** `verifier/verifier.go:1135-1159` and `common/tokenSigner.go`
+
+## JWT Structure
+
+### Header
+
+```json
+{
+  "alg": "ES256",
+  "kid": "WHFu4HZ59SM853C7eN0OvlKGrMeerDCpHOURoTQwHw",
+  "typ": "JWT"
+}
+```
+
+<ResponseField name="alg" type="string" required>
+  Signing algorithm: `RS256` (RSA) or `ES256` (ECDSA)
+</ResponseField>
+
+<ResponseField name="kid" type="string" required>
+  Key ID for signature verification, available via JWKS endpoint
+</ResponseField>
+
+<ResponseField name="typ" type="string" required>
+  Token type, always `JWT`
+</ResponseField>
+
+### Payload
+
+```json
+{
+  "iss": "https://verifier.example.com",
+  "sub": "did:key:z6MksQu8W3TRLqYdJhnQSw5XKZy5QqT4yF4UqPMkVfTQ",
+  "aud": ["https://api.example.com"],
+  "exp": 1735689600,
+  "iat": 1735686000,
+  "verifiableCredential": {
+    "type": ["VerifiableCredential", "CustomerCredential"],
+    "credentialSubject": {
+      "id": "did:key:z6MksQu8W3TRLqYdJhnQSw5XKZy5QqT4yF4UqPMkVfTQ",
+      "customerType": "enterprise",
+      "region": "EU"
+    }
+  }
+}
+```
+
+### Standard Claims
+
+<ResponseField name="iss" type="string" required>
+  Issuer: The VCVerifier host URL
+</ResponseField>
+
+<ResponseField name="sub" type="string">
+  Subject: The holder DID from the Verifiable Presentation
+</ResponseField>
+
+<ResponseField name="aud" type="array" required>
+  Audience: The service(s) that should accept this token
+</ResponseField>
+
+<ResponseField name="exp" type="number" required>
+  Expiration time: Unix timestamp when the token expires
+</ResponseField>
+
+<ResponseField name="iat" type="number">
+  Issued at: Unix timestamp when the token was created
+</ResponseField>
+
+## Signing Configuration
+
+Configure the JWT signing key and algorithm in `server.yaml`:
+
+```yaml
+verifier:
+  # Algorithm for JWT signatures
+  keyAlgorithm: "ES256"  # RS256 or ES256
+  
+  # Generate ephemeral key (not persisted)
+  generateKey: true
+  
+  # Or provide a key file (PEM format)
+  keyPath: "/path/to/private-key.pem"
+  
+  # JWT expiration in minutes
+  jwtExpiration: 60
+  
+  # Client identification for key ID
+  clientIdentification:
+    id: "did:web:verifier.example.com"
+    kid: "key-2024-01"
+```
+
+### Supported Algorithms
+
+<Tabs>
+  <Tab title="ES256">
+    **Elliptic Curve Digital Signature Algorithm (ECDSA)**
+    
+    - **Curve**: P-256 (secp256r1)
+    - **Key size**: 256 bits
+    - **Performance**: Fast signing and verification
+    - **Key size**: Small keys and signatures
+    
+    **Recommended**: Use ES256 for modern applications
+    
+    ```yaml
+    verifier:
+      keyAlgorithm: "ES256"
+      generateKey: true
+    ```
+  </Tab>
+  
+  <Tab title="RS256">
+    **RSA Signature with SHA-256**
+    
+    - **Algorithm**: RSASSA-PKCS1-v1_5
+    - **Key size**: Typically 2048 or 4096 bits
+    - **Performance**: Slower than ES256
+    - **Compatibility**: Widely supported
+    
+    ```yaml
+    verifier:
+      keyAlgorithm: "RS256"
+      keyPath: "/keys/rsa-private.pem"
+    ```
+  </Tab>
+</Tabs>
+
+## Key Management
+
+### Generated Keys (Ephemeral)
+
+For development and testing, generate keys on startup:
+
+```yaml
+verifier:
+  generateKey: true
+  keyAlgorithm: "ES256"
+```
+
+<Warning>
+  Generated keys are not persisted and change on restart. Existing JWTs will become invalid. **Not suitable for production.**
+</Warning>
+
+### Provided Keys (Persistent)
+
+For production, provide a persistent private key:
+
+```yaml
+verifier:
+  generateKey: false
+  keyPath: "/etc/vcverifier/keys/signing-key.pem"
+  keyAlgorithm: "ES256"
+```
+
+**Generate an ES256 key:**
+```bash
+# Generate private key
+openssl ecparam -name prime256v1 -genkey -noout -out private-key.pem
+
+# Extract public key
+openssl ec -in private-key.pem -pubout -out public-key.pem
+```
+
+**Generate an RS256 key:**
+```bash
+# Generate private key
+openssl genrsa -out private-key.pem 2048
+
+# Extract public key
+openssl rsa -in private-key.pem -pubout -out public-key.pem
+```
+
+### Key ID (kid)
+
+The Key ID helps clients identify which key signed the token:
+
+```yaml
+verifier:
+  clientIdentification:
+    # Used as kid if certificate doesn't include it
+    kid: "2024-q1-signing-key"
+    # Fallback: client ID used if kid not set
+    id: "did:web:verifier.example.com"
+```
+
+**Priority order:**
+1. `kid` value in the key itself (if present in JWK)
+2. `clientIdentification.kid` from config
+3. `clientIdentification.id` from config
+
+## JWT Token Signer
+
+The token signer interface provides signing capabilities:
+
+**Source reference:** `common/tokenSigner.go:7-15`
+
+```go
+type TokenSigner interface {
+  Sign(t jwt.Token, options ...jwt.SignOption) ([]byte, error)
+}
+
+type JwtTokenSigner struct{}
+
+func (JwtTokenSigner) Sign(t jwt.Token, options ...jwt.SignOption) ([]byte, error) {
+  return jwt.Sign(t, options...)
+}
+```
+
+### Signing Process
+
+When generating a JWT:
+
+**Source reference:** `verifier/verifier.go:493-506`
+
+```go
+var signatureAlgorithm jwa.SignatureAlgorithm
+
+switch v.signingAlgorithm {
+case "RS256":
+  signatureAlgorithm = jwa.RS256()
+case "ES256":
+  signatureAlgorithm = jwa.ES256()
+}
+
+jwtBytes, err := v.tokenSigner.Sign(
+  tokenSession.token,
+  jwt.WithKey(signatureAlgorithm, v.signingKey),
+)
+```
+
+## Credential Inclusion
+
+VCVerifier supports different methods for including credential data in the JWT.
+
+### Single Credential
+
+If one credential is verified, it's included as `verifiableCredential`:
+
+```json
+{
+  "iss": "https://verifier.example.com",
+  "sub": "did:key:z6Mks...",
+  "exp": 1735689600,
+  "verifiableCredential": {
+    "type": ["VerifiableCredential", "CustomerCredential"],
+    "credentialSubject": {
+      "id": "did:key:z6Mks...",
+      "role": "admin"
+    }
+  }
+}
+```
+
+### Multiple Credentials
+
+If multiple credentials are verified, they're included as `verifiablePresentation`:
+
+```json
+{
+  "iss": "https://verifier.example.com",
+  "sub": "did:key:z6Mks...",
+  "exp": 1735689600,
+  "verifiablePresentation": [
+    {
+      "type": ["VerifiableCredential", "CustomerCredential"],
+      "credentialSubject": {/* ... */}
+    },
+    {
+      "type": ["VerifiableCredential", "RoleCredential"],
+      "credentialSubject": {/* ... */}
+    }
+  ]
+}
+```
+
+### Flat Claims Mode
+
+For simpler downstream processing, enable flat claims mode:
+
+```yaml
+configRepo:
+  services:
+    - id: myService
+      oidcScopes:
+        default:
+          flatClaims: true
+```
+
+With flat claims, credential data is flattened to top-level JWT claims:
+
+```json
+{
+  "iss": "https://verifier.example.com",
+  "sub": "did:key:z6Mks...",
+  "exp": 1735689600,
+  "customerType": "enterprise",
+  "region": "EU",
+  "role": "admin"
+}
+```
+
+<Info>
+  Flat claims mode makes it easier to use standard JWT libraries for authorization decisions.
+</Info>
+
+## Token Expiration
+
+Configure token lifetime:
+
+```yaml
+verifier:
+  # JWT expires after 60 minutes (default)
+  jwtExpiration: 60
+```
+
+The expiration timestamp is calculated:
+
+**Source reference:** `verifier/verifier.go:1138`
+
+```go
+jwtBuilder := jwt.NewBuilder().
+  Issuer(v.GetHost()).
+  Audience([]string{audience}).
+  Expiration(v.clock.Now().Add(v.jwtExpiration))
+```
+
+<Note>
+  Token expiration is independent of session expiry. Sessions expire during the authentication flow, while JWTs expire after issuance.
+</Note>
+
+## JWKS Endpoint
+
+Clients verify JWT signatures using the public key from the JWKS endpoint:
+
+**Endpoint:** `GET /.well-known/jwks`
+
+**Response:**
+```json
+{
+  "keys": [
+    {
+      "kty": "EC",
+      "crv": "P-256",
+      "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4",
+      "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM",
+      "use": "sig",
+      "kid": "2024-q1-signing-key"
+    }
+  ]
+}
+```
+
+**Source reference:** `verifier/verifier.go:522-527`
+
+```go
+func (v *CredentialVerifier) GetJWKS() jwk.Set {
+  jwks := jwk.NewSet()
+  publicKey, _ := v.signingKey.PublicKey()
+  jwks.AddKey(publicKey)
+  return jwks
+}
+```
+
+## Token Retrieval
+
+After successful authentication, retrieve the JWT via the token endpoint:
+
+**Request:**
+```bash
+curl -X POST https://verifier.example.com/token \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d 'grant_type=authorization_code' \
+  -d 'code=IwMTgvY3JlZGVudGlhbHMv' \
+  -d 'redirect_uri=https://app.example.com/callback'
+```
+
+**Response:**
+```json
+{
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "access_token": "eyJhbGciOiJFUzI1NiIsImtpZCI6Ik..."
+}
+```
+
+<Warning>
+  **Single retrieval**: Each authorization code can only be used once. The token is deleted from cache after retrieval to prevent replay attacks.
+</Warning>
+
+## Token Verification
+
+Downstream services verify the JWT:
+
+### 1. Fetch JWKS
+
+```bash
+curl https://verifier.example.com/.well-known/jwks
+```
+
+### 2. Verify Signature
+
+Use a JWT library to verify the signature:
+
+```javascript
+const jwt = require('jsonwebtoken');
+const jwksClient = require('jwks-rsa');
+
+const client = jwksClient({
+  jwksUri: 'https://verifier.example.com/.well-known/jwks'
+});
+
+function getKey(header, callback) {
+  client.getSigningKey(header.kid, (err, key) => {
+    const signingKey = key.publicKey || key.rsaPublicKey;
+    callback(null, signingKey);
+  });
+}
+
+jwt.verify(token, getKey, {
+  issuer: 'https://verifier.example.com',
+  algorithms: ['ES256', 'RS256']
+}, (err, decoded) => {
+  if (err) {
+    console.error('Invalid token:', err);
+  } else {
+    console.log('Valid token:', decoded);
+  }
+});
+```
+
+### 3. Check Claims
+
+Verify standard claims:
+- **iss**: Token issued by expected verifier
+- **aud**: Token intended for your service
+- **exp**: Token not expired
+- **sub**: Subject matches expected user
+
+## Security Best Practices
+
+1. **Use ES256 for new deployments**: Better performance and smaller keys than RS256
+
+2. **Persist signing keys**: Don't use `generateKey: true` in production
+
+3. **Rotate keys regularly**: Implement key rotation with overlapping validity
+
+4. **Set appropriate expiration**: Balance security (shorter) vs. usability (longer)
+
+5. **Validate audience claim**: Ensure tokens are used by intended services
+
+6. **Monitor JWKS access**: Track which services fetch your public keys
+
+7. **Use HTTPS only**: Never expose JWKS or tokens over unencrypted connections
+
+## Complete Configuration Example
+
+```yaml
+server:
+  host: "https://verifier.example.com"
+  port: 8080
+
+verifier:
+  did: "did:web:verifier.example.com"
+  
+  # JWT signing configuration
+  keyAlgorithm: "ES256"
+  generateKey: false
+  keyPath: "/etc/vcverifier/keys/es256-private.pem"
+  jwtExpiration: 60
+  
+  # Client identification
+  clientIdentification:
+    id: "did:web:verifier.example.com"
+    kid: "2024-q1-signing-key"
+  
+  # Session configuration
+  sessionExpiry: 300
+  validationMode: "combined"
+  
+  # Request modes
+  supportedModes:
+    - "byReference"
+    - "byValue"
+
+configRepo:
+  services:
+    - id: api-service
+      defaultOidcScope: "default"
+      oidcScopes:
+        default:
+          flatClaims: false
+          credentials:
+            - type: CustomerCredential
+              jwtInclusion:
+                enabled: true
+                fullInclusion: true
+```

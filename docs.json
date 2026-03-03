@@ -1,122 +1,119 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "VCVerifier",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#5B2C6F",
+    "light": "#00D4FF",
+    "dark": "#2D1B3D"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/FIWARE/VCVerifier"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/FIWARE/VCVerifier"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
+              "introduction",
               "quickstart",
-              "development"
+              "architecture"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Installation",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "installation/docker",
+              "installation/kubernetes",
+              "installation/local-setup"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Configuration",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "configuration/overview",
+              "configuration/server",
+              "configuration/verifier",
+              "configuration/credentials-config",
+              "configuration/templating"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Integration",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "integration/frontend",
+              "integration/same-device",
+              "integration/cross-device",
+              "integration/request-modes"
+            ]
+          },
+          {
+            "group": "Trust Anchors",
+            "pages": [
+              "trust-anchors/overview",
+              "trust-anchors/ebsi-tir",
+              "trust-anchors/gaia-x",
+              "trust-anchors/mixed-usage"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/validation-modes",
+              "advanced/holder-verification",
+              "advanced/compliance",
+              "advanced/jwt-generation"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Overview",
             "pages": [
-              "api-reference/introduction"
+              "api/overview",
+              "api/authentication-flow"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Authorization Endpoints",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/authorization",
+              "api/loginqr",
+              "api/samedevice",
+              "api/startsiop"
+            ]
+          },
+          {
+            "group": "Authentication Endpoints",
+            "pages": [
+              "api/authentication-response",
+              "api/token",
+              "api/request-by-reference"
+            ]
+          },
+          {
+            "group": "Discovery Endpoints",
+            "pages": [
+              "api/jwks",
+              "api/openid-configuration"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

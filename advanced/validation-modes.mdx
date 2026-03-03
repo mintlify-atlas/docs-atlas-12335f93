@@ -1,0 +1,173 @@
+---
+title: Validation Modes
+description: Configure how VCVerifier validates credential content
+---
+
+VCVerifier supports multiple validation modes for Verifiable Credentials. These modes control **content validation** only—cryptographic verification happens separately.
+
+## Available Validation Modes
+
+Validation modes are configured in `server.yaml` under `verifier.validationMode`:
+
+```yaml verifier:
+  validationMode: "combined"
+```
+
+### none
+
+No content validation is performed. The verifier accepts any credential structure after cryptographic verification.
+
+<Warning>
+  **Use with caution**: This mode provides no protection against malformed credentials. Only use in trusted environments or for testing.
+</Warning>
+
+```yaml verifier:
+  validationMode: "none"
+```
+
+**Use cases:**
+- Development and testing environments
+- When you have external validation mechanisms
+- Backwards compatibility scenarios
+
+### combined
+
+Performs both JSON-LD validation and schema validation together. This is the most comprehensive validation mode.
+
+```yaml verifier:
+  validationMode: "combined"
+```
+
+<Info>
+  **Recommended**: This mode provides the strongest guarantees about credential structure and semantics.
+</Info>
+
+**What it validates:**
+- JSON-LD context resolution and processing
+- Schema compliance
+- Credential structure integrity
+- Semantic consistency
+
+### jsonLd
+
+Uses the JSON-LD parser for validation. Ensures that the credential is valid JSON-LD and can be processed correctly.
+
+```yaml verifier:
+  validationMode: "jsonLd"
+```
+
+**What it validates:**
+- Context documents are resolvable
+- JSON-LD syntax is correct
+- Terms are properly defined in contexts
+- RDF graph can be constructed
+
+**Example credential structure:**
+```json
+{
+  "@context": [
+    "https://www.w3.org/2018/credentials/v1",
+    "https://example.com/contexts/v1"
+  ],
+  "type": ["VerifiableCredential", "CustomerCredential"],
+  "credentialSubject": {
+    "id": "did:key:z6MksQu...",
+    "customField": "value"
+  }
+}
+```
+
+### baseContext
+
+Validates that only fields and values defined in the base context are present. **No extra fields are allowed** outside of `credentialSubject`.
+
+```yaml verifier:
+  validationMode: "baseContext"
+```
+
+<Warning>
+  This mode enforces strict field constraints. Custom properties in the root credential object will cause validation to fail.
+</Warning>
+
+**What it validates:**
+- All root-level fields exist in the base context
+- No unexpected properties at the root level
+- Standard VC Data Model compliance
+- `credentialSubject` can contain custom fields
+
+**Valid structure:**
+```json
+{
+  "@context": ["https://www.w3.org/2018/credentials/v1"],
+  "type": ["VerifiableCredential"],
+  "issuer": "did:key:z6Mks...",
+  "issuanceDate": "2023-01-01T00:00:00Z",
+  "credentialSubject": {
+    "customField1": "allowed",
+    "customField2": "also allowed"
+  }
+}
+```
+
+## Configuration Example
+
+Complete verifier configuration with validation mode:
+
+```yaml verifier:
+  did: "did:key:z6MkigCEnopwujz8Ten2dzq91nvMjqbKQYcifuZhqBsEkH7g"
+  validationMode: "combined"
+  keyAlgorithm: "ES256"
+  generateKey: true
+  sessionExpiry: 30
+  supportedModes:
+    - "urlEncoded"
+    - "byReference"
+    - "byValue"
+```
+
+## Default Behavior
+
+<Note>
+  If no validation mode is configured, VCVerifier defaults to `none` for backwards compatibility. However, you should explicitly configure a validation mode for production deployments.
+</Note>
+
+## Implementation Details
+
+Validation modes are implemented in the `TrustBlocValidator` using the [Trustbloc VC-GO library](https://github.com/trustbloc/vc-go):
+
+**Source reference:** `verifier/jwt_verifier.go:89-106`
+
+```go
+switch validationMode {
+case "none":
+  return true, nil
+case "combined":
+  err = credential.ValidateCredential()
+case "jsonLd":
+  err = credential.ValidateCredential(verifiable.WithJSONLDValidation())
+case "baseContext":
+  err = credential.ValidateCredential(verifiable.WithBaseContextValidation())
+}
+```
+
+## Choosing the Right Mode
+
+| Mode | Security | Flexibility | Performance | Recommended For |
+|------|----------|-------------|-------------|----------------|
+| **none** | Low | High | Fast | Testing only |
+| **jsonLd** | Medium | High | Medium | JSON-LD ecosystems |
+| **baseContext** | High | Low | Fast | Strict compliance |
+| **combined** | Highest | Medium | Slower | Production systems |
+
+## Error Handling
+
+If validation fails, the credential is rejected and an error is returned:
+
+```json
+{
+  "error": "invalid_vc",
+  "description": "Credential validation failed"
+}
+```
+
+Check the VCVerifier logs for detailed validation error messages.

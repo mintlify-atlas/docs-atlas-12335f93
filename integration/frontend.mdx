@@ -1,0 +1,395 @@
+---
+title: Frontend Integration
+description: Integrate VCVerifier authentication into your frontend application using the loginQR endpoint
+---
+
+## Overview
+
+VCVerifier provides a login page with QR code display to simplify frontend integration for human-to-machine (H2M) authentication flows. This approach allows users to scan a QR code with their wallet app to authenticate using Verifiable Credentials.
+
+## How It Works
+
+The frontend integration flow follows these steps:
+
+<Steps>
+  <Step title="User Initiates Login">
+    Your frontend application redirects the user to the VCVerifier login page at `/api/v1/loginQR`
+  </Step>
+  
+  <Step title="QR Code Display">
+    VCVerifier displays a QR code containing the SIOP-2/OIDC4VP connection string with authentication parameters
+  </Step>
+  
+  <Step title="Wallet Interaction">
+    The user scans the QR code with their wallet application and approves the credential presentation
+  </Step>
+  
+  <Step title="Credential Verification">
+    VCVerifier verifies the presented credential and creates a signed JWT
+  </Step>
+  
+  <Step title="Callback to Frontend">
+    VCVerifier redirects to your `client_callback` URL with `state` and `code` parameters
+  </Step>
+  
+  <Step title="Token Exchange">
+    Your frontend exchanges the authorization code for the JWT via the `/token` endpoint
+  </Step>
+</Steps>
+
+## Integration Guide
+
+### Step 1: Redirect to Login Page
+
+Direct users to the VCVerifier login endpoint with the required parameters:
+
+<CodeGroup>
+
+```javascript JavaScript
+const state = crypto.randomUUID();
+const callbackUrl = encodeURIComponent('https://my-portal.com/auth_callback');
+
+// Redirect user to VCVerifier login page
+window.location.href = `https://verifier.example.com/api/v1/loginQR?state=${state}&client_callback=${callbackUrl}`;
+```
+
+```python Python
+import uuid
+from urllib.parse import quote
+
+state = str(uuid.uuid4())
+callback_url = quote('https://my-portal.com/auth_callback')
+
+# Redirect user to VCVerifier login page
+redirect_url = f"https://verifier.example.com/api/v1/loginQR?state={state}&client_callback={callback_url}"
+```
+
+```html HTML
+<a href="https://verifier.example.com/api/v1/loginQR?state=274e7465-cc9d-4cad-b75f-190db927e56a&client_callback=https%3A%2F%2Fmy-portal.com%2Fauth_callback">
+  Login with Verifiable Credentials
+</a>
+```
+
+</CodeGroup>
+
+### Step 2: Handle the Callback
+
+After successful authentication, VCVerifier redirects to your `client_callback` URL with query parameters:
+
+<CodeGroup>
+
+```javascript JavaScript
+// Example callback handler at /auth_callback
+const urlParams = new URLSearchParams(window.location.search);
+const state = urlParams.get('state');
+const code = urlParams.get('code');
+
+if (code && state) {
+  // Exchange authorization code for JWT
+  exchangeCodeForToken(code, state);
+}
+```
+
+```python Python (Flask)
+from flask import Flask, request
+
+@app.route('/auth_callback')
+def auth_callback():
+    state = request.args.get('state')
+    code = request.args.get('code')
+    
+    if code and state:
+        # Exchange authorization code for JWT
+        token = exchange_code_for_token(code, state)
+        return redirect('/dashboard')
+```
+
+</CodeGroup>
+
+The callback URL will receive:
+- `state`: The original state parameter you provided
+- `code`: Authorization code to exchange for the JWT
+
+### Step 3: Exchange Code for JWT
+
+Use the authorization code to retrieve the signed JWT from the token endpoint:
+
+<CodeGroup>
+
+```javascript JavaScript (Fetch)
+async function exchangeCodeForToken(code, state) {
+  const params = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code: code,
+    redirect_uri: 'https://my-portal.com/auth_callback'
+  });
+
+  const response = await fetch('https://verifier.example.com/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Accept': 'application/json'
+    },
+    body: params
+  });
+
+  const data = await response.json();
+  const accessToken = data.access_token;
+  
+  // Store token and use for subsequent requests
+  localStorage.setItem('access_token', accessToken);
+  
+  return accessToken;
+}
+```
+
+```python Python (Requests)
+import requests
+
+def exchange_code_for_token(code):
+    token_url = 'https://verifier.example.com/token'
+    
+    data = {
+        'grant_type': 'authorization_code',
+        'code': code,
+        'redirect_uri': 'https://my-portal.com/auth_callback'
+    }
+    
+    response = requests.post(
+        token_url,
+        data=data,
+        headers={'Accept': 'application/json'}
+    )
+    
+    token_data = response.json()
+    return token_data['access_token']
+```
+
+```curl cURL
+curl -X 'POST' \
+  'https://localhost:8080/token' \
+  -H 'accept: application/json' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d 'grant_type=authorization_code&code=IwMTgvY3JlZGVudGlhbHMv&redirect_uri=https%3A%2F%2Flocalhost%3A8080%2F'
+```
+
+</CodeGroup>
+
+### Step 4: Use the JWT
+
+The JWT contains the verified credential information and can be used for authorization:
+
+```json Response
+{
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "access_token": "eyJhbGciOiJFUzI1NiIsImtpZCI6IldPSEZ1NEhaNTlTTTg1M0M3ZU4wT3ZsS0dyTWVlckRDcEhPVVJvVFF3SHciLCJ0eXAiOiJKV1QifQ..."
+}
+```
+
+Use the access token in subsequent API requests:
+
+```javascript
+fetch('https://api.example.com/protected-resource', {
+  headers: {
+    'Authorization': `Bearer ${accessToken}`
+  }
+});
+```
+
+## Configuration Options
+
+### Required Parameters
+
+<ParamField path="state" type="string" required>
+  Unique identifier for tracking the authentication session. Used to match callbacks to original requests.
+</ParamField>
+
+<ParamField path="client_callback" type="string" required>
+  URL where VCVerifier will redirect after successful authentication. Must be URL-encoded.
+</ParamField>
+
+### Optional Parameters
+
+<ParamField path="client_id" type="string">
+  Identifier for your service. Used to retrieve specific scope and trust configurations.
+</ParamField>
+
+<ParamField path="nonce" type="string">
+  Random value to prevent replay attacks. Generated by VCVerifier if not provided.
+</ParamField>
+
+<ParamField path="request_mode" type="string">
+  How authentication requests are transmitted. Options: `urlEncoded` (default), `byValue`, `byReference`.
+</ParamField>
+
+## Customizing the Login Page
+
+The login page template can be customized to match your brand:
+
+### Template Configuration
+
+Configure the template directory in your `server.yaml`:
+
+```yaml
+server:
+  templateDir: "views/"
+  staticDir: "views/static/"
+```
+
+### Custom Template
+
+Create a custom template at `views/verifier_present_qr.html`:
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Login with Verifiable Credentials</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="login-container">
+    <h1>Scan to Login</h1>
+    <p>Use your wallet app to scan the QR code</p>
+    
+    <!-- QR Code Image -->
+    <img src="data:{{.qrcode}}" alt="Login QR Code" class="qr-code">
+    
+    <p class="help-text">
+      Don't have a wallet? 
+      <a href="/download-wallet">Get one here</a>
+    </p>
+  </div>
+</body>
+</html>
+```
+
+<Note>
+  The QR code must be included using `<img src="data:{{.qrcode}}">`. Static assets can be placed in the `staticDir` and accessed at `/static/`.
+</Note>
+
+## Complete Example
+
+Here's a complete React example integrating VCVerifier authentication:
+
+```jsx
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+function LoginPage() {
+  const navigate = useNavigate();
+  const verifierUrl = process.env.REACT_APP_VERIFIER_URL;
+  
+  const handleLogin = () => {
+    const state = crypto.randomUUID();
+    sessionStorage.setItem('auth_state', state);
+    
+    const callbackUrl = encodeURIComponent(
+      `${window.location.origin}/auth/callback`
+    );
+    
+    window.location.href = 
+      `${verifierUrl}/api/v1/loginQR?state=${state}&client_callback=${callbackUrl}`;
+  };
+  
+  return (
+    <div className="login-page">
+      <h1>Welcome</h1>
+      <button onClick={handleLogin}>
+        Login with Verifiable Credentials
+      </button>
+    </div>
+  );
+}
+
+function AuthCallback() {
+  const navigate = useNavigate();
+  const [error, setError] = useState(null);
+  
+  useEffect(() => {
+    const handleCallback = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get('code');
+      const state = params.get('state');
+      const storedState = sessionStorage.getItem('auth_state');
+      
+      // Verify state matches
+      if (state !== storedState) {
+        setError('Invalid state parameter');
+        return;
+      }
+      
+      try {
+        // Exchange code for token
+        const response = await fetch(`${process.env.REACT_APP_VERIFIER_URL}/token`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({
+            grant_type: 'authorization_code',
+            code: code,
+            redirect_uri: `${window.location.origin}/auth/callback`
+          })
+        });
+        
+        const data = await response.json();
+        
+        // Store token
+        localStorage.setItem('access_token', data.access_token);
+        sessionStorage.removeItem('auth_state');
+        
+        // Redirect to dashboard
+        navigate('/dashboard');
+      } catch (err) {
+        setError('Failed to exchange authorization code');
+      }
+    };
+    
+    handleCallback();
+  }, [navigate]);
+  
+  if (error) {
+    return <div>Error: {error}</div>;
+  }
+  
+  return <div>Authenticating...</div>;
+}
+
+export { LoginPage, AuthCallback };
+```
+
+## Security Considerations
+
+<Warning>
+  Always validate the `state` parameter in your callback to prevent CSRF attacks. Store the original state value and compare it with the value received in the callback.
+</Warning>
+
+### Best Practices
+
+1. **Use HTTPS**: Always use HTTPS for production deployments to protect tokens in transit
+2. **Validate State**: Compare the returned state with your original value
+3. **Short-Lived Tokens**: Configure appropriate token expiry (default: 3600 seconds)
+4. **Secure Storage**: Store tokens securely (httpOnly cookies or secure storage)
+5. **Token Refresh**: Implement token refresh logic before expiry
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Same-Device Flow" icon="mobile" href="/integration/same-device">
+    Learn about same-device authentication for mobile wallets
+  </Card>
+  
+  <Card title="Cross-Device Flow" icon="qrcode" href="/integration/cross-device">
+    Understand the QR code cross-device authentication flow
+  </Card>
+  
+  <Card title="Request Modes" icon="gear" href="/integration/request-modes">
+    Configure different request modes for various wallet types
+  </Card>
+  
+  <Card title="API Reference" icon="book" href="/api-reference/endpoint/loginqr">
+    View detailed API specifications
+  </Card>
+</CardGroup>

@@ -1,0 +1,114 @@
+---
+title: Configuration Overview
+description: Learn how to configure VCVerifier using YAML files and environment variables
+---
+
+## Introduction
+
+VCVerifier is configured via YAML configuration files. The configuration covers server settings, verifier behavior, logging, and credential trust configuration.
+
+## Configuration File Location
+
+The configuration file is loaded from one of the following locations:
+
+<Steps>
+  <Step title="Default Location">
+    By default, VCVerifier looks for `./server.yaml` in the working directory
+  </Step>
+  <Step title="Custom Location">
+    Set the `CONFIG_FILE` environment variable to specify a custom configuration file path
+    ```bash
+    export CONFIG_FILE=/path/to/config.yaml
+    ```
+  </Step>
+</Steps>
+
+## Configuration Structure
+
+The configuration file is organized into the following main sections:
+
+<CardGroup cols={2}>
+  <Card title="Server" icon="server" href="/configuration/server">
+    HTTP server configuration including port, templates, and static files
+  </Card>
+  <Card title="Verifier" icon="shield-check" href="/configuration/verifier">
+    Core verifier functionality: DID, keys, validation modes, and session settings
+  </Card>
+  <Card title="Credentials Config" icon="key" href="/configuration/credentials-config">
+    Trust anchors, scopes, and credential type configuration
+  </Card>
+  <Card title="Templating" icon="palette" href="/configuration/templating">
+    Customize the login page and QR code presentation
+  </Card>
+</CardGroup>
+
+## Minimal Configuration Example
+
+Here's a minimal configuration to get started:
+
+```yaml
+server:
+  port: 8080
+
+logging:
+  level: "INFO"
+  jsonLogging: true
+
+verifier:
+  did: did:key:myverifier
+  generateKey: true
+  sessionExpiry: 30
+
+configRepo:
+  services:
+    - id: myService
+      defaultOidcScope: "default"
+      oidcScopes:
+        default:
+          credentials:
+            - type: VerifiableCredential
+              trustedParticipantsLists:
+                - type: ebsi
+                  url: https://tir-pdc.ebsi.fiware.dev
+```
+
+## Environment Variables
+
+<ParamField path="CONFIG_FILE" type="string">
+  Path to the configuration YAML file. Defaults to `./server.yaml`
+</ParamField>
+
+## Configuration Validation
+
+<Note>
+  The configuration is validated at startup. If any required fields are missing or invalid, VCVerifier will fail to start with a descriptive error message.
+</Note>
+
+## Dynamic vs Static Configuration
+
+VCVerifier supports two modes of configuration:
+
+<Accordion title="Static Configuration">
+  All service and credential configurations are defined directly in the YAML file under `configRepo.services`. This is suitable for simple deployments with fixed trust relationships.
+</Accordion>
+
+<Accordion title="Dynamic Configuration">
+  Configure `configRepo.configEndpoint` to point to a [Credentials Config Service](https://github.com/FIWARE/credentials-config-service). The verifier will periodically fetch updated configurations, allowing runtime changes without restart.
+  
+  ```yaml
+  configRepo:
+    configEndpoint: http://config-service:8080
+    updateInterval: 30  # seconds
+  ```
+</Accordion>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Server Configuration" icon="server" href="/configuration/server">
+    Configure HTTP server, templates, and logging
+  </Card>
+  <Card title="Verifier Configuration" icon="shield-check" href="/configuration/verifier">
+    Set up DIDs, keys, and validation modes
+  </Card>
+</CardGroup>

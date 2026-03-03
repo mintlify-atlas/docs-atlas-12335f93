@@ -1,0 +1,128 @@
+---
+title: 'Authorization Endpoint'
+api: 'GET /api/v1/authorization'
+description: 'OAuth-2 compliant authorization endpoint for initiating the authorization process'
+---
+
+## Overview
+
+The authorization endpoint serves as the entry point for the OAuth 2.0 authorization process. It provides the correct redirect to the concrete authorization method based on the configured client type.
+
+<Note>
+  When a `request_uri` provides access to a request object, all mandatory parameters can also be provided as part of that object.
+</Note>
+
+## Endpoint
+
+```
+GET /api/v1/authorization
+```
+
+## Query Parameters
+
+<ParamField query="state" type="string" required>
+  Session state identifier used to maintain state between the request and callback.
+  
+  **Example:** `274e7465-cc9d-4cad-b75f-190db927e56a`
+</ParamField>
+
+<ParamField query="client_id" type="string">
+  The identifier of the client/service that intends to start the authentication flow. Used to retrieve the scope and trust services for verification.
+  
+  **Example:** `packet-delivery-portal`
+</ParamField>
+
+<ParamField query="redirect_uri" type="string">
+  The URI to redirect to after authorization is complete.
+  
+  **Example:** `https://my-app.com/redirect`
+</ParamField>
+
+<ParamField query="request_uri" type="string">
+  URI pointing to a JWT request object containing the authorization request parameters.
+  
+  **Example:** `https://my-app.com/request.jwt`
+</ParamField>
+
+<ParamField query="scope" type="string">
+  The scope of the access request. Defines what credentials or permissions are being requested.
+  
+  **Example:** `openid`
+</ParamField>
+
+<ParamField query="nonce" type="string" required>
+  A unique string value used to associate a client session with an ID Token and to mitigate replay attacks.
+  
+  **Example:** `274e7465-cc9d-4cad-b75f-190db927e56a`
+</ParamField>
+
+<ParamField query="response_type" type="string">
+  The type of response expected. Currently only `code` is supported.
+  
+  **Enum:** `code`
+</ParamField>
+
+## Response
+
+### 302 - Redirect
+
+A redirect to the appropriate authorization entry point based on the client configuration:
+
+- **DEEPLINK**: Redirects to a same-device flow using an OID4VP deeplink
+- **FRONTEND_V2**: Redirects to the V2 login QR page at `/api/v2/loginQR`
+
+<ResponseField name="Location" type="string">
+  The redirect URL in the response header, pointing to the next step in the authorization flow.
+</ResponseField>
+
+### 400 - Bad Request
+
+<ResponseField name="summary" type="string">
+  Error summary message.
+</ResponseField>
+
+<ResponseField name="details" type="string">
+  Detailed error description.
+</ResponseField>
+
+## Examples
+
+<CodeGroup>
+
+```bash cURL
+curl -X GET "https://verifier.example.com/api/v1/authorization?state=274e7465-cc9d-4cad-b75f-190db927e56a&client_id=packet-delivery-portal&redirect_uri=https://my-app.com/redirect&scope=openid&nonce=BfEte4DFdlmdO7a_fBiXTw&response_type=code" \
+  -L
+```
+
+```bash With Request URI
+curl -X GET "https://verifier.example.com/api/v1/authorization?state=274e7465-cc9d-4cad-b75f-190db927e56a&request_uri=https://my-app.com/request.jwt&nonce=BfEte4DFdlmdO7a_fBiXTw" \
+  -L
+```
+
+</CodeGroup>
+
+## Common Errors
+
+<Warning>
+  **Missing Required Parameters**: Ensure all required parameters (`state`, `nonce`) are provided. Missing parameters will result in a 400 Bad Request error.
+</Warning>
+
+| Error Code | Summary | Details |
+|------------|---------|----------|
+| 400 | `no_state_provided` | Authentication requires a state provided as query parameter. |
+| 400 | `no_client_id_provided` | Authentication requires a client-id provided as a parameter. |
+| 400 | `no_scope_provided` | Authentication requires a scope provided as a parameter. |
+| 400 | `no_nonce_provided` | Authentication requires a nonce provided as a query parameter. |
+| 400 | `invalid_response_type` | Authentication requires the response_type to be `code`. |
+| 500 | `unresolvable_request_object` | Was not able to get the request object from the client. |
+| 500 | `invalid_audience` | Audience of the request object was invalid. |
+
+## Implementation Notes
+
+- The endpoint supports two authorization types configured per client:
+  - **DEEPLINK**: Initiates a same-device flow with OID4VP protocol
+  - **FRONTEND_V2**: Redirects to the QR code presentation page
+  
+- When using `request_uri`, the endpoint will fetch the JWT request object and extract parameters from it. The request object's audience must include the verifier's host.
+
+- The protocol (http/https) is automatically detected from the incoming request.

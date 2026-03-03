@@ -1,0 +1,250 @@
+---
+title: 'Login QR Endpoints'
+description: 'Present QR codes as starting points for the authentication process'
+---
+
+## Overview
+
+The VCVerifier provides two versions of QR code presentation endpoints for initiating the SIOP (Self-Issued OpenID Provider) authentication flow. These endpoints return rendered HTML pages containing QR codes that users can scan with their credential wallets.
+
+<Note>
+  Version 2 (`/api/v2/loginQR`) includes additional features like WebSocket support for real-time updates and QR code expiration handling.
+</Note>
+
+---
+
+## V2 Login QR (Recommended)
+
+### Endpoint
+
+```
+GET /api/v2/loginQR
+```
+
+### Description
+
+Returns a rendered HTML page with a QR code that encodes the login starting point for the SIOP flow. The QR code contains an OpenID URL like:
+
+```
+openid://?scope=something&response_type=rt&response_mode=rm&client_id=ci&redirect_uri=uri&state=state&nonce=nonce&request_mode=urlEncoded
+```
+
+### Query Parameters
+
+<ParamField query="state" type="string" required>
+  Session state identifier used to maintain state between the request and callback.
+  
+  **Example:** `274e7465-cc9d-4cad-b75f-190db927e56a`
+</ParamField>
+
+<ParamField query="client_id" type="string">
+  The identifier of the client/service that intends to start the authentication flow. Used to retrieve the scope and trust services for verification.
+  
+  **Example:** `packet-delivery-portal`
+</ParamField>
+
+<ParamField query="redirect_uri" type="string">
+  The URI to redirect to after authorization is complete.
+  
+  **Example:** `https://my-app.com/redirect`
+</ParamField>
+
+<ParamField query="request_uri" type="string">
+  URI pointing to a JWT request object containing the authorization request parameters. When provided, parameters are extracted from the request object.
+  
+  **Example:** `https://my-app.com/request.jwt`
+</ParamField>
+
+<ParamField query="scope" type="string">
+  The scope of the access request. Defines what credentials or permissions are being requested.
+  
+  **Example:** `openid`
+</ParamField>
+
+<ParamField query="nonce" type="string" required>
+  A unique string value used to associate a client session with an ID Token and to mitigate replay attacks.
+  
+  **Example:** `274e7465-cc9d-4cad-b75f-190db927e56a`
+</ParamField>
+
+<ParamField query="request_mode" type="string" default="byReference">
+  Mode to be used for the authorization request.
+  
+  **Enum:** `urlEncoded` | `byValue` | `byReference`
+  
+  **Default:** `byReference`
+</ParamField>
+
+### Response
+
+#### 200 - Success
+
+Returns a rendered HTML page containing:
+- The QR code for scanning
+- WebSocket URL for real-time updates
+- QR code expiration timestamp
+- Authentication request details
+
+<ResponseField name="Content-Type" type="string">
+  `text/html`
+</ResponseField>
+
+#### 400 - Bad Request
+
+Returned when required parameters are missing or invalid.
+
+<ResponseField name="summary" type="string">
+  Error summary message.
+</ResponseField>
+
+<ResponseField name="details" type="string">
+  Detailed error description.
+</ResponseField>
+
+### Examples
+
+<CodeGroup>
+
+```bash Basic Request
+curl -X GET "https://verifier.example.com/api/v2/loginQR?state=274e7465-cc9d-4cad-b75f-190db927e56a&client_id=packet-delivery-portal&redirect_uri=https://my-app.com/redirect&scope=openid&nonce=BfEte4DFdlmdO7a_fBiXTw" \
+  -H "Accept: text/html"
+```
+
+```bash With Request URI
+curl -X GET "https://verifier.example.com/api/v2/loginQR?state=274e7465-cc9d-4cad-b75f-190db927e56a&request_uri=https://my-app.com/request.jwt&nonce=BfEte4DFdlmdO7a_fBiXTw" \
+  -H "Accept: text/html"
+```
+
+```bash Custom Request Mode
+curl -X GET "https://verifier.example.com/api/v2/loginQR?state=274e7465-cc9d-4cad-b75f-190db927e56a&client_id=packet-delivery-portal&redirect_uri=https://my-app.com/redirect&scope=openid&nonce=BfEte4DFdlmdO7a_fBiXTw&request_mode=urlEncoded" \
+  -H "Accept: text/html"
+```
+
+</CodeGroup>
+
+---
+
+## V1 Login QR (Legacy)
+
+### Endpoint
+
+```
+GET /api/v1/loginQR
+```
+
+### Description
+
+Legacy version of the QR code presentation endpoint. Returns a simpler HTML page with a QR code for the SIOP flow.
+
+<Warning>
+  This is the V1 endpoint. Consider using `/api/v2/loginQR` for enhanced features including WebSocket support and better error handling.
+</Warning>
+
+### Query Parameters
+
+<ParamField query="state" type="string" required>
+  Session state identifier.
+  
+  **Example:** `274e7465-cc9d-4cad-b75f-190db927e56a`
+</ParamField>
+
+<ParamField query="client_callback" type="string" required>
+  Endpoint of the client to receive the JWT.
+  
+  **Example:** `https://my-portal.com/auth_callback`
+</ParamField>
+
+<ParamField query="client_id" type="string">
+  The identifier of the client/service initiating the authentication flow.
+  
+  **Example:** `packet-delivery-portal`
+</ParamField>
+
+<ParamField query="nonce" type="string">
+  Unique string value for session association and replay attack mitigation.
+  
+  **Example:** `274e7465-cc9d-4cad-b75f-190db927e56a`
+</ParamField>
+
+<ParamField query="request_mode" type="string" default="byReference">
+  Mode to be used for the authorization request.
+  
+  **Enum:** `urlEncoded` | `byValue` | `byReference`
+  
+  **Default:** `byReference`
+</ParamField>
+
+### Response
+
+#### 200 - Success
+
+Returns a rendered HTML page containing the QR code.
+
+<ResponseField name="Content-Type" type="string">
+  `text/html`
+</ResponseField>
+
+#### 400 - Bad Request
+
+<ResponseField name="summary" type="string">
+  Error summary message.
+</ResponseField>
+
+<ResponseField name="details" type="string">
+  Detailed error description.
+</ResponseField>
+
+### Examples
+
+<CodeGroup>
+
+```bash Basic Request
+curl -X GET "https://verifier.example.com/api/v1/loginQR?state=274e7465-cc9d-4cad-b75f-190db927e56a&client_callback=https://my-portal.com/auth_callback&client_id=packet-delivery-portal&nonce=BfEte4DFdlmdO7a_fBiXTw" \
+  -H "Accept: text/html"
+```
+
+```bash With Request Mode
+curl -X GET "https://verifier.example.com/api/v1/loginQR?state=274e7465-cc9d-4cad-b75f-190db927e56a&client_callback=https://my-portal.com/auth_callback&client_id=packet-delivery-portal&request_mode=byValue" \
+  -H "Accept: text/html"
+```
+
+</CodeGroup>
+
+---
+
+## Common Errors
+
+| Error Code | Summary | Details |
+|------------|---------|----------|
+| 400 | `no_state_provided` | Authentication requires a state provided as query parameter. |
+| 400 | `NoCallbackProvided` | A callback address has to be provided as query-parameter. (V1 only) |
+| 400 | `no_redirect_uri_provided` | Token requests require a redirect_uri. (V2 when no request_uri) |
+| 400 | `no_nonce_provided` | Authentication requires a nonce provided as a query parameter. (V2 only) |
+| 500 | `qr_generation_error` | An error occurred while generating the QR code. |
+| 500 | `unresolvable_request_object` | Was not able to get the request object from the client. |
+| 500 | `invalid_audience` | Audience of the request object was invalid. |
+
+## Implementation Notes
+
+### Request URI Support (V2)
+
+When using the `request_uri` parameter:
+1. The endpoint fetches the JWT request object from the provided URI
+2. Parameters are extracted from the request object
+3. The audience (`aud`) in the request object must include the verifier's host
+4. Extracted parameters override query parameters
+
+### Request Modes
+
+- **byReference** (default): The request is passed by reference via a URI
+- **byValue**: The complete request object is included in the QR code
+- **urlEncoded**: Parameters are URL-encoded in the QR code
+
+### WebSocket Support (V2)
+
+The V2 endpoint provides a WebSocket URL in the format:
+```
+wss://verifier.example.com/ws?state={state}
+```
+
+This enables real-time updates on the authentication status.

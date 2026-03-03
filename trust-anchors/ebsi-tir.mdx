@@ -1,0 +1,282 @@
+---
+title: EBSI Trusted Issuers Registry
+description: Integrate with EBSI-compliant Trusted Issuers Registry for credential verification
+---
+
+## Overview
+
+The EBSI (European Blockchain Services Infrastructure) Trusted Issuers Registry (TIR) is a standardized API for managing and querying trusted credential issuers. VCVerifier provides full support for EBSI-compliant TIR implementations.
+
+## How EBSI TIR Works
+
+The EBSI TIR maintains a registry of authorized credential issuers, including:
+
+- **Issuer DIDs** - Decentralized identifiers for each trusted issuer
+- **Attributes** - Metadata about the issuer's capabilities and authorizations
+- **Credential Types** - Types of credentials the issuer is authorized to issue
+- **Claims** - Specific claims the issuer can make in credentials
+- **Validity Periods** - Time ranges during which the issuer's authorization is valid
+
+## Configuration
+
+### Basic Configuration
+
+Configure EBSI TIR verification for specific credential types:
+
+<CodeGroup>
+```yaml Full Configuration
+configRepo:
+  services:
+    testService:
+      scope:
+        - VerifiableCredential
+        - CustomerCredential
+      trustedParticipants:
+        VerifiableCredential:
+          - type: ebsi
+            url: https://tir-pdc.ebsi.fiware.dev
+        CustomerCredential:
+          - type: ebsi
+            url: https://tir-pdc.ebsi.fiware.dev
+```
+
+```yaml Simplified (Backward Compatible)
+configRepo:
+  services:
+    testService:
+      scope:
+        - VerifiableCredential
+      trustedParticipants:
+        VerifiableCredential:
+          - https://tir-pdc.ebsi.fiware.dev
+```
+</CodeGroup>
+
+<Note>
+  For backward compatibility, EBSI TIR is the default registry type. If no `type` is specified, VCVerifier assumes `type: ebsi`.
+</Note>
+
+### Advanced Configuration with Trusted Issuers Lists
+
+You can also configure trusted issuers lists alongside trusted participants:
+
+```yaml
+configRepo:
+  services:
+    testService:
+      oidcScopes:
+        default:
+          credentials:
+            - type: CustomerCredential
+              # Trusted participants endpoint
+              trustedParticipantsLists:
+                VerifiableCredential:
+                  - https://tir-pdc.ebsi.fiware.dev
+                CustomerCredential:
+                  - https://tir-pdc.ebsi.fiware.dev
+              # Trusted issuers endpoint
+              trustedIssuersLists:
+                VerifiableCredential:
+                  - https://tir-pdc.ebsi.fiware.dev
+                CustomerCredential:
+                  - https://tir-pdc.ebsi.fiware.dev
+```
+
+## API Versions
+
+VCVerifier supports both EBSI TIR API versions with automatic fallback:
+
+- **v4 API** - `/v4/issuers/{did}` (tried first)
+- **v3 API** - `/v3/issuers/{did}` (fallback if v4 fails)
+
+The client automatically detects which version is supported by the registry and adapts accordingly.
+
+<CodeGroup>
+```go V4 Endpoint
+GET {tirEndpoint}/v4/issuers/{did}
+```
+
+```go V3 Endpoint
+GET {tirEndpoint}/v3/issuers/{did}
+```
+</CodeGroup>
+
+## Response Format
+
+When querying an EBSI TIR, the registry returns trusted issuer information:
+
+```json
+{
+  "did": "did:key:z6MkigCEnopwujz8Ten2dzq91nvMjqbKQYcifuZhqBsEkH7g",
+  "attributes": [
+    {
+      "hash": "0x123...",
+      "body": "encoded-attribute-data",
+      "issuerType": "TrustedIssuer",
+      "tao": "TrustAnchorOperator",
+      "rootTao": "RootTrustAnchor"
+    }
+  ]
+}
+```
+
+### Issuer Attributes
+
+Each trusted issuer entry includes attributes that define:
+
+- **Credentials Type** - Which credential types the issuer can issue
+- **Valid Time Ranges** - When the issuer's authorization is active
+- **Allowed Claims** - Specific claims the issuer can make
+- **Claim Values** - Permissible values for specific claims
+
+## Verification Flow
+
+<Steps>
+  <Step title="Credential Received">
+    VCVerifier receives a Verifiable Credential from a wallet
+  </Step>
+  
+  <Step title="Extract Issuer DID">
+    The issuer's DID is extracted from the credential
+  </Step>
+  
+  <Step title="Check Cache">
+    VCVerifier checks if the issuer verification result is cached
+  </Step>
+  
+  <Step title="Query TIR (if not cached)">
+    If not cached, VCVerifier queries the configured TIR endpoint:
+    - Tries v4 API first: `GET /v4/issuers/{did}`
+    - Falls back to v3 API if needed: `GET /v3/issuers/{did}`
+  </Step>
+  
+  <Step title="Evaluate Response">
+    - **HTTP 200**: Issuer is trusted, verification succeeds
+    - **HTTP 404**: Issuer not found, verification fails
+    - **Other codes**: Error condition, verification fails
+  </Step>
+  
+  <Step title="Cache Result">
+    The verification result is cached to optimize future requests
+  </Step>
+</Steps>
+
+## Authentication
+
+EBSI TIR endpoints may require authentication using OAuth2 machine-to-machine flows:
+
+```yaml
+verifier:
+  # M2M configuration for TIR authentication
+  m2m:
+    authEnabled: true
+    clientId: "your-client-id"
+    clientSecret: "your-client-secret"
+    tokenEndpoint: "https://auth.ebsi.eu/token"
+  # Cache configuration
+  tirCacheExpiry: 3600  # seconds
+  tilCacheExpiry: 3600  # seconds
+```
+
+<Warning>
+  When `authEnabled: true`, VCVerifier automatically refreshes authentication tokens every 30 seconds to ensure uninterrupted access to protected TIR endpoints.
+</Warning>
+
+## Performance Optimization
+
+VCVerifier implements several optimizations for EBSI TIR queries:
+
+### Caching Strategy
+
+- **Issuer Cache**: Caches full issuer responses to avoid repeated queries
+- **Existence Cache**: Caches simple yes/no trust checks (HTTP 200 vs 404)
+- **Configurable Expiry**: Adjust cache duration via `tirCacheExpiry` setting
+
+### HTTP Client Configuration
+
+```go
+// Keep-alives disabled to avoid race condition EOFs
+transport := http.DefaultTransport.(*http.Transport).Clone()
+transport.DisableKeepAlives = true
+httpClient := &http.Client{Transport: transport}
+```
+
+<Note>
+  Keep-alive connections are intentionally disabled to prevent race condition errors. Since most responses are served from cache, this has minimal performance impact.
+</Note>
+
+## Testing Your Configuration
+
+Verify your EBSI TIR configuration is working:
+
+```bash
+# Check if a specific issuer is trusted
+curl -X GET "https://tir-pdc.ebsi.fiware.dev/v4/issuers/did:key:z6MkigCEnopwujz8Ten2dzq91nvMjqbKQYcifuZhqBsEkH7g"
+
+# Expected response for trusted issuer: HTTP 200
+# Expected response for unknown issuer: HTTP 404
+```
+
+## Common Use Cases
+
+<AccordionGroup>
+  <Accordion title="Single TIR for All Credentials">
+    Use one EBSI TIR instance for all credential types in your system:
+    
+    ```yaml
+    trustedParticipants:
+      VerifiableCredential:
+        - type: ebsi
+          url: https://tir-pdc.ebsi.fiware.dev
+      CustomerCredential:
+        - type: ebsi
+          url: https://tir-pdc.ebsi.fiware.dev
+      EmployeeCredential:
+        - type: ebsi
+          url: https://tir-pdc.ebsi.fiware.dev
+    ```
+  </Accordion>
+  
+  <Accordion title="Different TIRs per Credential Type">
+    Use specialized TIR instances for different credential categories:
+    
+    ```yaml
+    trustedParticipants:
+      EducationCredential:
+        - type: ebsi
+          url: https://education-tir.ebsi.eu
+      IdentityCredential:
+        - type: ebsi
+          url: https://identity-tir.ebsi.eu
+    ```
+  </Accordion>
+  
+  <Accordion title="Development vs Production">
+    Use different TIR endpoints for different environments:
+    
+    ```yaml
+    # Development
+    trustedParticipants:
+      VerifiableCredential:
+        - type: ebsi
+          url: https://tir-pdc.ebsi.fiware.dev
+    
+    # Production
+    trustedParticipants:
+      VerifiableCredential:
+        - type: ebsi
+          url: https://tir.ebsi.eu
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Gaia-X Registry" icon="star" href="./gaia-x">
+    Learn about Gaia-X Registry integration
+  </Card>
+  <Card title="Mixed Usage" icon="layer-group" href="./mixed-usage">
+    Combine EBSI TIR with other registries
+  </Card>
+</CardGroup>

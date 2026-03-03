@@ -1,80 +1,283 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get VCVerifier up and running in minutes
 ---
 
-## Get started in three steps
+## Prerequisites
 
-Get your documentation site running locally and make your first customization.
+Before you begin, ensure you have:
+- Docker installed on your machine
+- Basic understanding of Verifiable Credentials
+- A wallet capable of storing Verifiable Credentials (for testing)
 
-### Step 1: Set up your local environment
+<Note>
+For a complete local setup with all required components (Trusted Issuers Registry, credential issuers, etc.), see the [VC-Integration-Test](https://github.com/fiware/VC-Integration-Test) repository.
+</Note>
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+## Run with Docker
+
+The fastest way to get started is using the official Docker image:
+
+<Steps>
+  <Step title="Pull and run the container">
+    ```bash
+    docker run -p 8080:8080 quay.io/fiware/vcverifier
+    ```
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    This starts VCVerifier on port 8080 with default configuration.
+  </Step>
+  
+  <Step title="Verify the service is running">
+    Check the health endpoint:
+    ```bash
+    curl http://localhost:8080/health
+    ```
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    You should receive a successful health check response.
+  </Step>
+  
+  <Step title="Check the JWKS endpoint">
+    Verify that the public keys are available:
+    ```bash
+    curl http://localhost:8080/.well-known/jwks
+    ```
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    This returns the public keys used to verify JWTs issued by the verifier.
+  </Step>
+</Steps>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+## Configuration
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+VCVerifier requires a configuration file to define verification rules, trust anchors, and credential scopes.
 
-### Step 3: Go live
+### Basic configuration file
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+Create a `server.yaml` file:
+
+```yaml server.yaml
+server:
+  port: 8080
+  templateDir: "views/"
+  staticDir: "views/static/"
+
+logging:
+  level: "INFO"
+  jsonLogging: true
+  logRequests: true
+
+verifier:
+  did: "did:key:your-verifier-did"
+  clientIdentification:
+    id: "did:key:your-client-id"
+  supportedModes: ["urlEncoded", "byReference", "byValue"]
+  sessionExpiry: 30
+  generateKey: true
+  keyAlgorithm: "ES256"
+
+configRepo:
+  services:
+    - id: testService
+      defaultOidcScope: "default"
+      oidcScopes:
+        default:
+          credentials:
+            - type: CustomerCredential
+              trustedParticipantsLists:
+                VerifiableCredential:
+                  - https://tir-pdc.ebsi.fiware.dev
+              trustedIssuersLists:
+                VerifiableCredential:
+                  - https://tir-pdc.ebsi.fiware.dev
+```
+
+<Info>
+The configuration supports dynamic updates via the [Credentials Config Service](https://github.com/FIWARE/credentials-config-service) for production deployments.
+</Info>
+
+### Run with custom configuration
+
+```bash
+docker run -p 8080:8080 \
+  -v $(pwd)/server.yaml:/app/server.yaml \
+  -e CONFIG_FILE=/app/server.yaml \
+  quay.io/fiware/vcverifier
+```
+
+## Testing the authentication flow
+
+Let's walk through a same-device authentication flow to see VCVerifier in action.
+
+### Step 1: Start the authentication flow
+
+Initiate a same-device flow to get the authentication request:
+
+```bash
+curl -X GET 'http://localhost:8080/api/v1/samedevice?state=274e7465-cc9d-4cad-b75f-190db927e56a'
+```
+
+<Info>
+The `state` parameter is a unique identifier for this authentication session. In production, your frontend application would generate this.
+</Info>
+
+**Response**: A 302 redirect with location header:
+
+```
+location: http://localhost:8080/?response_type=vp_token&response_mode=direct_post
+  &client_id=did:key:z6MkigCEnopwujz8Ten2dzq91nvMjqbKQYcifuZhqBsEkH7g
+  &redirect_uri=http://localhost:8080/api/v1/authentication_response
+  &state=OUBlw8wlCZZOcTwRN2wURA
+  &nonce=wqtpm60Jwx1sYWITRRZwBw
+```
+
+### Step 2: Submit the Verifiable Presentation
+
+The wallet responds with the Verifiable Presentation via the authentication response endpoint:
+
+```bash
+curl -X POST \
+  'http://localhost:8080/api/v1/authentication_response?state=OUBlw8wlCZZOcTwRN2wURA' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d 'presentation_submission=<base64-url-encoded-submission>&vp_token=<base64-url-encoded-vp>'
+```
+
+<Warning>
+Make sure to use Base64-URL-Safe encoding (not standard Base64) for the `vp_token` and `presentation_submission` parameters.
+</Warning>
+
+**Response**: Another 302 redirect with the authorization code:
+
+```
+location: http://localhost:8080/?state=274e7465-cc9d-4cad-b75f-190db927e56a
+  &code=IwMTgvY3JlZGVudGlhbHMv
+```
+
+### Step 3: Exchange code for JWT
+
+Use the authorization code to retrieve the signed JWT:
+
+```bash
+curl -X POST \
+  'http://localhost:8080/token' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d 'grant_type=authorization_code' \
+  -d 'code=IwMTgvY3JlZGVudGlhbHMv' \
+  -d 'redirect_uri=http://localhost:8080/'
+```
+
+**Response**: The verified credential as a signed JWT:
+
+```json
+{
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "access_token": "eyJhbGciOiJFUzI1NiIsImtpZCI6IldPSEZ1NEhaNTlTTTg1M0M3ZU4wT3ZsS0dyTWVlckRDcEhPVVJvVFF3SHciLCJ0eXAiOiJKV1QifQ..."
+}
+```
+
+<Steps>
+  <Step title="Decode the JWT">
+    The JWT contains the verified credential in its payload. You can decode it at [jwt.io](https://jwt.io) or programmatically.
+  </Step>
+  
+  <Step title="Verify the signature">
+    Use the JWKS endpoint to get the public key and verify the JWT signature:
+    ```bash
+    curl http://localhost:8080/.well-known/jwks
+    ```
+  </Step>
+  
+  <Step title="Use for authorization">
+    Pass the JWT as a Bearer token to your downstream services:
+    ```bash
+    curl -H "Authorization: Bearer <access_token>" \
+      https://your-api.example.com/protected-resource
+    ```
+  </Step>
+</Steps>
+
+## Frontend integration
+
+For browser-based applications, VCVerifier provides a login page with QR code:
+
+### Display QR code for wallet scanning
+
+```bash
+curl 'http://localhost:8080/api/v1/loginQR?state=user-session-123&client_callback=https://my-app.com/auth/callback'
+```
+
+This returns an HTML page with:
+- A QR code containing the authentication request
+- The `openid4vp://` connection string
+- JavaScript to handle the callback
+
+### Integration flow
+
+<Steps>
+  <Step title="Redirect user to login page">
+    ```javascript
+    const state = generateRandomState();
+    const callbackUrl = encodeURIComponent('https://my-app.com/auth/callback');
+    window.location.href = `http://verifier.example.com/api/v1/loginQR?state=${state}&client_callback=${callbackUrl}`;
+    ```
+  </Step>
+  
+  <Step title="User scans QR code">
+    The user scans the QR code with their wallet app, which contains the credential.
+  </Step>
+  
+  <Step title="VCVerifier verifies and calls back">
+    After verification, VCVerifier calls your callback URL:
+    ```
+    https://my-app.com/auth/callback?state=user-session-123&code=authorization-code
+    ```
+  </Step>
+  
+  <Step title="Exchange code for token">
+    Your backend exchanges the code for a JWT:
+    ```javascript
+    const response = await fetch('http://verifier.example.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: authorizationCode,
+        redirect_uri: 'https://my-app.com/auth/callback'
+      })
+    });
+    const { access_token } = await response.json();
+    ```
+  </Step>
+</Steps>
+
+## Deploy to Kubernetes
+
+For production deployments, use the Helm chart:
+
+```bash
+helm repo add i4trust https://i4trust.github.io/helm-charts
+helm repo update
+helm install vcverifier i4trust/vcverifier \
+  --set verifier.did=did:key:your-verifier-did \
+  --set configService.enabled=true
+```
+
+<Info>
+See the [i4trust/vcverifier Helm chart](https://github.com/i4Trust/helm-charts/tree/main/charts/vcverifier) for full configuration options.
+</Info>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Architecture" icon="diagram-project" href="/architecture">
+    Learn how VCVerifier works under the hood
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration">
+    Configure trust anchors and credential policies
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference">
+    Explore all available endpoints
+  </Card>
+  <Card title="Production Setup" icon="server" href="/deployment">
+    Best practices for production deployment
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
