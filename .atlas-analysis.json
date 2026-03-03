@@ -1,0 +1,132 @@
+{
+  "projectType": "api-service",
+  "projectName": "VCVerifier",
+  "projectDescription": "A Relying Party service that provides SIOP-2/OIDC4VP compliant endpoints for verifying credentials and issuing JWTs.",
+  "theme": "aspen",
+  "primaryColor": "#5B2C6F",
+  "lightColor": "#00D4FF",
+  "darkColor": "#2D1B3D",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Installation",
+            "pages": [
+              "installation/docker",
+              "installation/kubernetes",
+              "installation/local-setup"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/overview",
+              "configuration/server",
+              "configuration/verifier",
+              "configuration/credentials-config",
+              "configuration/templating"
+            ]
+          },
+          {
+            "group": "Integration",
+            "pages": [
+              "integration/frontend",
+              "integration/same-device",
+              "integration/cross-device",
+              "integration/request-modes"
+            ]
+          },
+          {
+            "group": "Trust Anchors",
+            "pages": [
+              "trust-anchors/overview",
+              "trust-anchors/ebsi-tir",
+              "trust-anchors/gaia-x",
+              "trust-anchors/mixed-usage"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/validation-modes",
+              "advanced/holder-verification",
+              "advanced/compliance",
+              "advanced/jwt-generation"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api/overview",
+              "api/authentication-flow"
+            ]
+          },
+          {
+            "group": "Authorization Endpoints",
+            "pages": [
+              "api/authorization",
+              "api/loginqr",
+              "api/samedevice",
+              "api/startsiop"
+            ]
+          },
+          {
+            "group": "Authentication Endpoints",
+            "pages": [
+              "api/authentication-response",
+              "api/token",
+              "api/request-by-reference"
+            ]
+          },
+          {
+            "group": "Discovery Endpoints",
+            "pages": [
+              "api/jwks",
+              "api/openid-configuration"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "SIOP-2/OIDC4VP compliant authentication endpoints",
+    "Verifiable Credentials verification using Trustbloc libraries",
+    "JWT token generation from verified credentials",
+    "Integration with EBSI TIR and Gaia-X Registry",
+    "QR code-based cross-device authentication",
+    "Same-device authentication flow support",
+    "Multiple request modes (urlEncoded, byValue, byReference)",
+    "Configurable credential validation modes"
+  ],
+  "publicApiSurface": [
+    "GET /api/v1/loginQR - Login page with QR code for authentication",
+    "GET /api/v2/loginQR - Enhanced login page with QR code",
+    "GET /api/v1/authorization - OAuth2 authorization endpoint",
+    "GET /api/v1/samedevice - Same device authentication flow",
+    "GET /api/v1/startsiop - Initiates SIOP flow and returns connection string",
+    "POST /api/v1/authentication_response - Credential submission endpoint",
+    "GET /api/v1/authentication_response - Alternative credential submission",
+    "POST /token - Token exchange endpoint for authorization code",
+    "POST /services/{service_id}/token - Service-specific token endpoint",
+    "GET /.well-known/jwks - Public keys for JWT verification",
+    "GET /services/{service_id}/.well-known/openid-configuration - OpenID Provider metadata",
+    "GET /api/v1/request/{id} - Request object by reference",
+    "GET /health - Health check endpoint"
+  ]
+}
