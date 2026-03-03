@@ -111,6 +111,12 @@
               "api/jwks",
               "api/openid-configuration"
             ]
+          },
+          {
+            "group": "Monitoring",
+            "pages": [
+              "api/health"
+            ]
           }
         ]
       }

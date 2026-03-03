@@ -1,0 +1,182 @@
+---
+title: Health Check
+description: Health check endpoint for monitoring VCVerifier service status
+---
+
+## Overview
+
+The health check endpoint provides service health status information for monitoring and orchestration tools. It returns the current health status of VCVerifier and its components.
+
+## Endpoint
+
+**GET** `/health`
+
+Returns the health status of the VCVerifier service.
+
+### Response
+
+**Success Response (200 OK)**
+
+The service is healthy and operational.
+
+<ResponseField name="status" type="string">
+  Overall health status
+  
+  Value: `"ok"`
+</ResponseField>
+
+<ResponseField name="timestamp" type="string">
+  ISO 8601 timestamp of the health check
+  
+  Example: `"2024-01-15T10:30:00Z"`
+</ResponseField>
+
+<ResponseField name="component" type="object">
+  Component health information
+  
+  <Expandable title="component">
+    <ResponseField name="name" type="string">
+      Component name
+      
+      Value: `"vcverifier"`
+    </ResponseField>
+    
+    <ResponseField name="status" type="string">
+      Component health status
+      
+      Value: `"ok"`
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Failure Response (503 Service Unavailable)**
+
+The service is unhealthy or experiencing issues.
+
+<ResponseField name="status" type="string">
+  Overall health status
+  
+  Value: `"degraded"` or `"unavailable"`
+</ResponseField>
+
+<ResponseField name="timestamp" type="string">
+  ISO 8601 timestamp of the health check
+</ResponseField>
+
+<ResponseField name="component" type="object">
+  Component health information with error details
+</ResponseField>
+
+## Examples
+
+### Successful Health Check
+
+```bash cURL
+curl http://localhost:8080/health
+```
+
+```json Response
+{
+  "status": "ok",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "component": {
+    "name": "vcverifier",
+    "status": "ok"
+  }
+}
+```
+
+### Using Health Check in Kubernetes
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: vcverifier
+spec:
+  containers:
+  - name: vcverifier
+    image: quay.io/fiware/vcverifier:latest
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 8080
+      initialDelaySeconds: 30
+      periodSeconds: 10
+    readinessProbe:
+      httpGet:
+        path: /health
+        port: 8080
+      initialDelaySeconds: 5
+      periodSeconds: 5
+```
+
+### Using Health Check in Docker Compose
+
+```yaml
+version: '3.8'
+services:
+  vcverifier:
+    image: quay.io/fiware/vcverifier:latest
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+```
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Kubernetes Probes" icon="dharmachakra">
+    Configure liveness and readiness probes for container orchestration
+  </Card>
+  <Card title="Load Balancer Health" icon="scale-balanced">
+    Use as health check target for load balancers and reverse proxies
+  </Card>
+  <Card title="Monitoring Systems" icon="chart-line">
+    Integrate with monitoring tools like Prometheus, Nagios, or Datadog
+  </Card>
+  <Card title="CI/CD Pipelines" icon="code-branch">
+    Verify service availability during deployment and integration tests
+  </Card>
+</CardGroup>
+
+## Implementation Details
+
+The health check is implemented using the [hellofresh/health-go](https://github.com/hellofresh/health-go) library and registered at application startup.
+
+**Source:** `health.go:21-28`
+
+```go
+func HealthReq(c *gin.Context) {
+    checkResult := healthCheck.Measure(c.Request.Context())
+    if checkResult.Status == health.StatusOK {
+        c.AbortWithStatusJSON(http.StatusOK, checkResult)
+    } else {
+        c.AbortWithStatusJSON(http.StatusServiceUnavailable, checkResult)
+    }
+}
+```
+
+<Note>
+The health endpoint does not require authentication and can be accessed without credentials for monitoring purposes.
+</Note>
+
+## Excluding from Logs
+
+To prevent health check requests from cluttering your logs, exclude the `/health` path in your server configuration:
+
+```yaml
+logging:
+  pathsToSkip:
+    - "/health"
+```
+
+See the [Server Configuration](/configuration/server#logging) documentation for more details.
+
+## Related Endpoints
+
+- [API Overview](/api/overview) - Complete API reference
+- [OpenID Configuration](/api/openid-configuration) - Service discovery metadata
